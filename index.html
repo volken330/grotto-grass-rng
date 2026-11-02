@@ -47,9 +47,9 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
 .seg.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 /* tap pad */
 #blink { appearance: none; border: 1.5px solid var(--accent); background: var(--surface); color: var(--ink); border-radius: 14px;
-  min-height: 200px; width: 100%; cursor: pointer; display: grid; place-content: center; gap: 6px;
+  min-height: 160px; width: 100%; cursor: pointer; display: grid; place-content: center; gap: 6px;
   touch-action: manipulation; user-select: none; -webkit-user-select: none; font-family: var(--font-body); }
-#blink .big { font-size: 2.4rem; font-weight: 600; letter-spacing: .14em; line-height: 1; }
+#blink .big { font-size: 2.1rem; font-weight: 600; letter-spacing: .14em; line-height: 1; }
 #blink .hint { font-size: .85rem; color: var(--ink-2); }
 #blink.flash { background: var(--accent); color: var(--accent-ink); }
 #blink.flash .hint { color: var(--accent-ink); }
@@ -87,7 +87,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
 .msg { color: var(--ink-2); margin: 0; font-size: .88rem; }
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 /* countdown: only shown once locked */
-.count { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 16px; }
+.count { display: grid; gap: 10px; border-bottom: 1px solid var(--line); padding-bottom: 16px; }
 /* before lock: same layout, dimmed, so the countdown always has its place */
 .count[data-on="0"] .cd-num, .count[data-on="0"] .cd-what { color: var(--ink-2); }
 .count[data-on="0"] .win, .count[data-on="0"] .mid, .count[data-on="0"] .now { display: none; }
@@ -139,13 +139,6 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
   <div class="padtop"><button class="reset-btn" id="reset" type="button" title="Reset (Esc)">Reset</button></div>
   <button id="blink" type="button"><span class="big">BLINK</span><span class="hint">Tap or press Space when Link's eyes close</span></button>
 
-  <div class="bar">
-    <span class="state" id="state" data-s="idle"><span class="dot"></span><span id="state-text">Ready: press on Link's first blink</span></span>
-  </div>
-  <div class="timeline" id="timeline" aria-hidden="true"></div>
-  <p class="meta"><span id="n-press">0</span> blinks · <span id="n-cand">8,388,608</span> RNG states · <span id="n-plaus">–</span> plausible</p>
-  <p class="msg" id="msg">Usually locks after 10–12 blinks (about 30 seconds). One missed blink or extra press is tolerated.</p>
-
   <section class="count" id="count" data-on="0" aria-live="polite">
     <div class="cd-top">
       <div class="cd-num" id="cd-num">0.0</div>
@@ -157,6 +150,14 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
     <div class="selftest" id="selftest" hidden></div>
     <div class="total" id="total"></div>
   </section>
+
+  <div class="bar">
+    <span class="state" id="state" data-s="idle"><span class="dot"></span><span id="state-text">Ready: press on Link's first blink</span></span>
+  </div>
+  <div class="timeline" id="timeline" aria-hidden="true"></div>
+  <p class="meta"><span id="n-press">0</span> blinks · <span id="n-cand">8,388,608</span> RNG states · <span id="n-plaus">–</span> plausible</p>
+  <p class="msg" id="msg">Usually locks after 10–12 blinks (about 30 seconds). One missed blink or extra press is tolerated.</p>
+
 
   <section class="calib">
     <label class="calib-label" for="f-delay">Reaction time (ms)</label>
