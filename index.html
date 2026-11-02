@@ -1,0 +1,1820 @@
+<title>Grotto Grass Drop RNG Calc</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Minimal single column: drop-target picker, the tap pad, one status line, and the countdown once locked.
+   Deliberate single dark theme so it stays low-glare next to the game. */
+:root {
+  color-scheme: dark;
+  --bg: #121417;         /* page */
+  --surface: #1b1e22;    /* button / inputs */
+  --line: #2c3036;       /* hairlines */
+  --ink: #e9e7e2;        /* text */
+  --ink-2: #9a9ea4;      /* secondary text */
+  --accent: #f0b04a;     /* tap pad, beeps */
+  --accent-ink: #1b1306; /* text on accent */
+  --magic: #6fd08c;      /* locked / magic window */
+  --warn: #e8834e;       /* no fit */
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; margin: 0; }
+.wrap { max-width: 560px; margin: 0 auto; padding-block: 28px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px; }
+h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* drop-target picker (segmented control) */
+.pick { border: 0; padding: 0; margin: 0; display: grid; gap: 10px; min-width: 0; }
+.pick:disabled { opacity: .5; }
+.seg { border: 1px solid var(--line); border-radius: 10px; padding: 3px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; min-width: 0; }
+.pick .sub { font-size: .78rem; color: var(--ink-2); margin: 2px 0 -4px; }
+.toggle:has(input:disabled) { opacity: .4; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; cursor: pointer; justify-self: start; }
+.warnnote { color: var(--warn); font-size: .78rem; margin-left: 4px; }
+.toggle input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.seg label { position: relative; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg span { display: block; text-align: center; padding: 8px 6px; border-radius: 7px; font-weight: 500; font-size: .92rem; color: var(--ink-2); }
+.seg input:checked + span { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pick:disabled label, .pick:disabled input { cursor: default; }
+.note { font-size: .82rem; color: var(--ink-2); margin: -6px 0 0; }
+.reqs { font-size: .82rem; color: var(--ink-2); margin: -6px 0 0; padding-left: 1.1em; display: grid; gap: 1px; }
+.reqs ul { margin: 1px 0 0; padding-left: 1.1em; list-style: circle; }
+.seg.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* tap pad */
+#blink { appearance: none; border: 1.5px solid var(--accent); background: var(--surface); color: var(--ink); border-radius: 14px;
+  min-height: 200px; width: 100%; cursor: pointer; display: grid; place-content: center; gap: 6px;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none; font-family: var(--font-body); }
+#blink .big { font-size: 2.4rem; font-weight: 600; letter-spacing: .14em; line-height: 1; }
+#blink .hint { font-size: .85rem; color: var(--ink-2); }
+#blink.flash { background: var(--accent); color: var(--accent-ink); }
+#blink.flash .hint { color: var(--accent-ink); }
+#blink:disabled { border-color: var(--line); cursor: default; opacity: .5; }
+#blink:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* status */
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.state { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: .95rem; min-width: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-2); flex: none; }
+.state[data-s="solving"] .dot { background: var(--accent); animation: pulse 1s infinite; }
+.state[data-s="locked"] .dot { background: var(--magic); }
+.state[data-s="nofit"] .dot { background: var(--warn); }
+@keyframes pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .state[data-s="solving"] .dot { animation: none; } }
+.links { display: flex; gap: 4px; }
+.padtop { display: flex; justify-content: flex-end; margin-bottom: -6px; }
+.reset-btn { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px;
+  padding: 10px 22px; font: 600 1rem var(--font-body); cursor: pointer; touch-action: manipulation; }
+.reset-btn:hover { border-color: var(--ink-2); }
+.reset-btn:disabled { opacity: .5; cursor: default; }
+.avg { display: block; font: 400 .72rem var(--font-mono); color: var(--ink-2); margin-top: 1px; }
+.total { font: 600 .95rem var(--font-body); color: var(--ink); }
+.total:empty { display: none; }
+.calib { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 8px; }
+.calib-label { font-weight: 600; font-size: .92rem; }
+.calib-row { display: flex; align-items: center; gap: 10px; }
+#f-delay { width: 110px; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 500 1rem var(--font-mono); }
+#f-delay:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#calib-dot { width: 34px; height: 34px; border-radius: 50%; background: var(--surface); border: 1.5px solid var(--line); margin-left: auto; }
+#calib-dot.lit { background: var(--accent); border-color: var(--accent); }
+.calib .note { margin: 0; }
+.link { appearance: none; background: none; border: 0; color: var(--ink-2); font: 500 .88rem var(--font-body); padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+.link:hover { color: var(--ink); background: var(--surface); }
+.meta { font-family: var(--font-mono); font-size: .8rem; color: var(--ink-2); margin: -8px 0 0; font-variant-numeric: tabular-nums; }
+.msg { color: var(--ink-2); margin: 0; font-size: .88rem; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* countdown: only shown once locked */
+.count { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 16px; }
+/* before lock: same layout, dimmed, so the countdown always has its place */
+.count[data-on="0"] .cd-num, .count[data-on="0"] .cd-what { color: var(--ink-2); }
+.count[data-on="0"] .win, .count[data-on="0"] .mid, .count[data-on="0"] .now { display: none; }
+.cd-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.cd-num { font-family: var(--font-mono); font-size: 3.6rem; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: var(--magic); }
+.cd-what { font-weight: 600; font-size: 1.05rem; }
+.beeps { display: flex; gap: 8px; padding-bottom: 6px; }
+.beeps i { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line); display: block; }
+.beeps i.on { background: var(--accent); border-color: var(--accent); }
+.beeps i.last { border-color: var(--magic); }
+.beeps i.last.on { background: var(--magic); }
+.range { position: relative; height: 14px; border-radius: 7px; background: var(--surface); overflow: hidden; }
+.range .win { position: absolute; top: 0; bottom: 0; background: rgba(111, 208, 140, .3); }
+.range .now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ink); }
+.range .mid { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--magic); }
+.cd-foot { display: flex; justify-content: space-between; gap: 10px; font-size: .8rem; color: var(--ink-2); }
+.selftest { font-size: .82rem; }
+.selftest[data-ok="1"] { color: var(--magic); }
+.selftest[data-ok="0"] { color: var(--warn); }
+/* tap timeline: one tick per tap, oldest at the left */
+.timeline { position: relative; height: 22px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow: hidden; }
+.timeline .tick { position: absolute; top: 5px; width: 2px; height: 12px; border-radius: 1px; background: var(--accent); transform: translateX(-1px); }
+</style>
+
+<main class="wrap">
+  <h1>Grotto Grass Drop RNG Calc</h1>
+
+  <fieldset class="pick" id="mode">
+    <legend class="sr">Target drop</legend>
+    <div class="seg">
+      <label><input type="radio" name="target" value="magic" checked><span>Magic<small class="avg" data-avg="magic"></small></span></label>
+      <label><input type="radio" name="target" value="heart"><span>Heart<small class="avg" data-avg="heart"></small></span></label>
+      <label><input type="radio" name="target" value="rupee"><span>Green rupee<small class="avg" data-avg="rupee"></small></span></label>
+      <label><input type="radio" name="target" value="arrows"><span>Seeds / Arrows<small class="avg" data-avg="arrows"></small></span></label>
+      <label><input type="radio" name="target" value="bombs"><span>Bombs<small class="avg" data-avg="bombs"></small></span></label>
+      <label><input type="radio" name="target" value="nothing"><span>Nothing<small class="avg" data-avg="nothing"></small></span></label>
+    </div>
+    <label class="toggle"><input type="checkbox" id="flex" checked><span>Count the flex drop too</span></label>
+    <label class="toggle"><input type="checkbox" id="crit"><span>1 heart or less <small class="warnnote">crit wiggle: search takes longer</small></span></label>
+    <span class="sub">Flex drop only</span>
+    <div class="seg two">
+      <label><input type="radio" name="target" value="fairy"><span>Fairy<small class="avg" data-avg="fairy"></small></span></label>
+      <label><input type="radio" name="target" value="redrupee"><span>Red rupee<small class="avg" data-avg="redrupee"></small></span></label>
+    </div>
+    <span class="sub">Chance per roll · rough time from the first tap to the B press</span>
+  </fieldset>
+  <ul class="reqs" id="target-note"></ul>
+
+  <div class="padtop"><button class="reset-btn" id="reset" type="button" title="Reset (Esc)">Reset</button></div>
+  <button id="blink" type="button"><span class="big">BLINK</span><span class="hint">Tap or press Space when Link's eyes close</span></button>
+
+  <div class="bar">
+    <span class="state" id="state" data-s="idle"><span class="dot"></span><span id="state-text">Ready: press on Link's first blink</span></span>
+  </div>
+  <div class="timeline" id="timeline" aria-hidden="true"></div>
+  <p class="meta"><span id="n-press">0</span> blinks · <span id="n-cand">8,388,608</span> RNG states · <span id="n-plaus">–</span> plausible</p>
+  <p class="msg" id="msg">Usually locks after 10–12 blinks (about 30 seconds). One missed blink or extra press is tolerated.</p>
+
+  <section class="count" id="count" data-on="0" aria-live="polite">
+    <div class="cd-top">
+      <div class="cd-num" id="cd-num">0.0</div>
+      <div class="beeps" id="beeps"><i></i><i></i><i></i><i class="last"></i></div>
+    </div>
+    <div class="cd-what" id="cd-what">Countdown starts when it locks</div>
+    <div class="range" id="range"><div class="win" id="win"></div><div class="mid" id="mid"></div><div class="now" id="now"></div></div>
+    <div class="cd-foot"><span class="mono" id="cd-window"></span><span class="mono" id="cd-frames"></span></div>
+    <div class="selftest" id="selftest" hidden></div>
+    <div class="total" id="total"></div>
+  </section>
+
+  <section class="calib">
+    <label class="calib-label" for="f-delay">Reaction time (ms)</label>
+    <div class="calib-row">
+      <input id="f-delay" type="number" min="0" max="1000" step="5" value="250" inputmode="numeric">
+      <button class="reset-btn" id="calib" type="button">Calibrate</button>
+      <div id="calib-dot" aria-hidden="true"></div>
+    </div>
+    <p class="note" id="calib-out">From a blink on screen to your tap, including any TV or capture lag. Calibrate: tap or press Space each time the dot lights (8 times).</p>
+  </section>
+
+  <!-- Suppressed for now: setup steps, timing settings and the simulated-session box. -->
+  <section hidden>
+    <ol>
+      <li>More than 5 hearts and an empty magic meter for the flex drop.</li>
+      <li>On the back wall directly behind the grass next to the chest (gossip-stone side), face the wall and press Z.</li>
+      <li>Hold the stick toward the camera for about 0.85 s so Link turns and walks back toward it, then let go. Don't touch the camera again.</li>
+      <li>Wait about 5 s for Navi to go into Link's hat.</li>
+      <li>Press BLINK on every blink. The first two must be back-to-back blinks.</li>
+      <li>When it locks: hold R, press B on the last beep.</li>
+    </ol>
+    <p>Blinks only, no fidgets: each idle fidget uses the RNG and this model doesn't include them.</p>
+  </section>
+  <section hidden>
+    <div id="settings">
+      <input id="f-sigma" type="number" value="50" aria-label="Press jitter, ms">
+      <select id="f-frame" aria-label="Game frame, ms"><option value="50.05">NTSC console / Wii VC (50.05)</option><option value="50">Emulator at 60 Hz (50.00)</option></select>
+      <input id="f-stab" type="number" value="6" aria-label="B press to grass cut, frames">
+      <input id="f-wmin" type="number" value="5" aria-label="Smallest window, frames">
+      <input id="f-beep" type="number" value="600" aria-label="Beep spacing, ms">
+    </div>
+  </section>
+  <section hidden>
+    <button id="demo" type="button">Simulate a session</button><button id="test-beep" type="button">Test beep</button>
+  </section>
+</main>
+
+<script>/*
+ * Grotto blink calculator core (NTSC 1.2 N64, Prescription GIM grotto, camera-in-front spot).
+ * Model validated frame-for-frame in mupen64plus (docs/research/PRESCRIPTION_GIM_MAGIC_DROP_ODDS_2026-10-31.md §8–9):
+ *   per frame: Link's blink (FaceChange_UpdateBlinking: next blink 20 + (s16)(r*80) frames later), then Link's action
+ *   (idle fidget choice in "fidgets" mode: (s32)(r*5): 1 tunic 90f, 2 tap feet 100f, else look-around 184f; each fidget
+ *   follows 89 frames of plain idle), then a grass cut (48 debris draws, then the drop roll (s16)(r*16)), then the
+ *   butterfly spawner (ObjMure_GroupBehavior1). RNG = low 23 bits of the LCG, Rand_ZeroOne = x / 2^23.
+ * Observations: press times (ms). Blink presses mark a blink (any constant delay); fidget presses mark the start
+ *   of a fidget and say which one. Frame 0 = the first blink press; the first two presses must be blinks.
+ */
+(function (root) {
+  'use strict';
+  const MASK = 0x7FFFFF, LA = 1664525 & MASK, LC = 1013904223 & MASK, f32 = Math.fround;
+  const next = (x) => (Math.imul(x, LA) + LC) & MASK;
+  const F02 = f32(0.2), F07 = f32(0.7);
+  const FID_LEN = { A: 184, T: 90, P: 100 };   // look-around, tunic, tap feet
+  const PLAIN = 89, EYE_MARGIN = 3;
+  const MAGIC_SLOTS = new Set([2, 14, 15]);     // drop table 2; 14 = flexible (magic with >5 hearts, empty meter)
+
+  // 49-step jump (48 debris draws + the roll) as an affine map, computed with BigInt once.
+  let A49 = 1n, C49 = 0n;
+  for (let i = 0; i < 49; i++) { C49 = (C49 * BigInt(LA) + BigInt(LC)) & 0x7FFFFFn; A49 = (A49 * BigInt(LA)) & 0x7FFFFFn; }
+  const A49n = Number(A49), C49n = Number(C49);
+  const rollSlot = (xAfterLink) => {
+    const x = (Math.imul(xAfterLink, A49n) + C49n) & MASK;
+    return Math.trunc(f32((x / 8388608) * 16));
+  };
+
+  function mureEvent(g) {
+    let x = g.x, rmax, longt;
+    x = next(x);
+    if (g.flag) { g.flag = 0; rmax = f32((x / 8388608) * F02); longt = 1; }
+    else { g.flag = 1; rmax = f32((x / 8388608) * F07); longt = 0; }
+    for (let i = 0; i < 3; i++) { x = next(x); if (x / 8388608 <= rmax) x = next(x); }
+    x = next(x);
+    const r = x / 8388608;
+    g.x = x;
+    return (longt ? Math.trunc(f32(r * 40.5)) : Math.trunc(f32(r * 10.5))) + 4;
+  }
+
+  /*
+   * Crit wiggle (Camera_Normal1, health <= 16, i.e. 1 heart or less): one RNG call in every frame where
+   * GameState.frames % 256 == 0. Camera_Update runs after Actor_UpdateAll, so the call is at the END of the frame,
+   * after Link and the spawner. Emulator check (NTSC 1.2, this grotto, shield held, 1 heart): the model with the
+   * wiggle matched 1,399 of 1,399 frames; without it the match broke at the first wiggle.
+   * The calculator doesn't know GameState.frames, so the phase P (0..255) is an unknown: wiggles happen at the end
+   * of frames P, P+256, P+512, ... counted from frame 0 = the first blink press.
+   */
+  const WIG = 256;
+  // Frame of the first wiggle at or after frame a, for phase P.
+  const wigFrom = (P, a) => a + ((((P - a) % WIG) + WIG) % WIG);
+
+  // Lazy simulator. fid0: frame of the first fidget after frame 0 (fidgets mode) or Infinity.
+  // P: crit-wiggle phase (0..255), or -1/undefined for no wiggle (more than 1 heart).
+  function makeGen(S, d, flag, fid0, P) {
+    return { x: S, frame: 0, wfrom: 0, P: P === undefined ? -1 : P, linkNext: 0, mureNext: d, flag, fidNext: fid0, D: [], F: [], T: [], Fend: [] };
+  }
+  function step(g) {   // process the next frame that has an event
+    const f = Math.min(g.linkNext, g.fidNext, g.mureNext);
+    // a wiggle at the end of a frame in [wfrom, f-1] comes before this frame's events (at most one: gaps < 256)
+    if (g.P >= 0 && wigFrom(g.P, g.wfrom) <= f - 1) g.x = next(g.x);
+    g.wfrom = f;
+    if (f === g.linkNext) { g.D.push(f); g.x = next(g.x); g.linkNext = f + 20 + Math.trunc(f32((g.x / 8388608) * 80)); }
+    if (f === g.fidNext) {
+      g.x = next(g.x);
+      const ct = Math.trunc(f32((g.x / 8388608) * 5));
+      const t = ct === 1 ? 'T' : ct === 2 ? 'P' : 'A';
+      g.F.push(f); g.T.push(t); g.Fend.push(f + FID_LEN[t]); g.fidNext = f + FID_LEN[t] + PLAIN;
+    }
+    if (f === g.mureNext) g.mureNext = f + mureEvent(g);
+    g.frame = f + 1;
+  }
+  function needDraw(g, j) { let guard = 0; while (g.D.length <= j && guard++ < 4000) step(g); }
+  function needFid(g, k) { let guard = 0; while (g.F.length <= k && g.fidNext !== Infinity && guard++ < 4000) step(g); }
+  function needFrame(g, f) { let guard = 0; while (Math.min(g.linkNext, g.fidNext, g.mureNext) <= f && guard++ < 4000) step(g); }
+
+  // Eye visibility of the blink drawn on frame D: closed-eye frames are D-4..D-2.
+  // 'v' visible, 'u' uncertain (near an animation change), 'h' hidden (inside a fidget).
+  function vis(g, D) {
+    if (g.fidNext === Infinity && g.F.length === 0) return 'v';
+    const e = D - 3;
+    needFrame(g, e);   // all fidgets starting by frame e are now known, and g.fidNext is the next one
+    let lo = -Infinity;
+    for (let k = 0; k <= g.F.length; k++) {
+      const hi = k < g.F.length ? g.F[k] : g.fidNext;     // plain idle window [lo, hi)
+      if (e < hi) {
+        if (e >= lo) return (e - lo < EYE_MARGIN || hi - e <= EYE_MARGIN) ? 'u' : 'v';
+        return (lo - e <= EYE_MARGIN) ? 'u' : 'h';
+      }
+      if (k < g.F.length) lo = g.Fend[k];
+    }
+    return 'v';
+  }
+
+  // Alignment of observations to one candidate. Returns {cost, sse, c, P[]} or null.
+  function alignCandidate(g, obs, P, ms, tol, budget, pens) {
+    let best = null;
+    const cur = new Array(obs.length).fill(null);
+    cur[0] = 0; cur[1] = g.D[1];
+    function finish(pen) {
+      let c = 0, m = 0;
+      for (let k = 0; k < obs.length; k++) if (cur[k] !== null) { c += obs[k].t - cur[k] * ms; m++; }
+      c /= m;
+      let sse = 0;
+      for (let k = 0; k < obs.length; k++) if (cur[k] !== null) { const r = obs[k].t - cur[k] * ms - c; sse += r * r; }
+      const cost = sse + pen;
+      if (!best || cost < best.cost) best = { cost, sse, c, P: cur.slice(), lastP: lastMatched() };
+    }
+    function lastMatched() { for (let k = obs.length - 1; k >= 0; k--) if (cur[k] !== null) return cur[k]; return 0; }
+    function rec(k, lastk, j, kf, errs, pen) {
+      if (best && pen >= best.cost) return;
+      if (k === obs.length) { finish(pen); return; }
+      const o = obs[k], gap = (o.t - obs[lastk].t) / ms, Plast = cur[lastk];
+      if (o.kind === 'f') {
+        needFid(g, kf);
+        if (kf < g.F.length) {
+          const Pf = g.F[kf] + 6;
+          // a visible, unpressed blink between the last match and this fidget counts as a miss
+          let misses = 0;
+          needDraw(g, j + 1);
+          for (let jj = j + 1; jj < g.D.length && g.D[jj] < g.F[kf]; jj++) { if (vis(g, g.D[jj]) === 'v') misses++; needDraw(g, jj + 1); }
+          if (g.T[kf] === o.type && Math.abs(gap - (Pf - Plast)) <= tol && errs + misses <= budget) {
+            // advance j past blinks before the fidget
+            let jn = j; while (jn + 1 < g.D.length && g.D[jn + 1] < g.F[kf]) jn++;
+            cur[k] = Pf;
+            rec(k + 1, k, jn, kf + 1, errs + misses, pen + misses * pens.miss);
+            cur[k] = null;
+          }
+        }
+      } else {
+        let matchedDirect = false;
+        let misses = 0;
+        for (let jj = j + 1; jj < j + 1 + 6; jj++) {
+          needDraw(g, jj);
+          if (jj >= g.D.length) break;
+          const D = g.D[jj];
+          needFid(g, kf);
+          if (kf < g.F.length && D > g.F[kf] + 6 + tol) break;          // an unpressed fidget would lie before it
+          const pred = D - Plast;
+          if (pred > gap + tol) break;
+          const v = vis(g, D);
+          if (v !== 'h' && Math.abs(gap - pred) <= tol && errs + misses <= budget) {
+            cur[k] = D;
+            rec(k + 1, k, jj, kf, errs + misses, pen + misses * pens.miss);
+            cur[k] = null;
+            if (misses === 0) { matchedDirect = true; break; }
+          }
+          if (v === 'v') misses++;
+        }
+        if (matchedDirect) return;
+      }
+      if (errs < budget && k < obs.length - 1) { cur[k] = null; rec(k + 1, lastk, j, kf, errs + 1, pen + pens.extra); }
+    }
+    rec(2, 1, 1, 0, 0, 0);
+    return best;
+  }
+
+  /*
+   * Search a slice of RNG states. opts: {mode:'blinks'|'fidgets', ms, sigma, budget, S0, S1}.
+   * Returns an array of candidates {S,d,flag,e,cost,sse,c,lastP}.
+   */
+  // Frame of Link's third blink draw (index 2) with no fidgets, for a cheap early check.
+  function thirdDraw(S, d, flag) {
+    const g = { x: S, flag };
+    let linkNext = 0, mureNext = d, n = 0, D = 0;
+    for (let guard = 0; guard < 400; guard++) {
+      const f = Math.min(linkNext, mureNext);
+      if (f === linkNext) { if (n === 2) return f; n++; g.x = next(g.x); linkNext = f + 20 + Math.trunc(f32((g.x / 8388608) * 80)); }
+      if (f === mureNext) mureNext = f + mureEvent(g);
+    }
+    return -1;
+  }
+
+  /*
+   * Search with the crit wiggle (opts.wiggle). Same blink model and mistake budget as alignCandidate, but the
+   * wiggle phase P is unknown, so each candidate also carries the SET of phases still possible: a 256-bit mask in
+   * 8 words. Going from one event frame to the next, a wiggle falls in the gap for some phases and not others; the
+   * search then splits into "wiggle here" and "not here" (each keeping its part of the mask), and the taps prune
+   * the branches. Only the gap a wiggle lands in matters for the events, not its exact frame, so the number of
+   * branches stays small. The generator state lives in preallocated slots (no allocation in the hot path).
+   */
+  const WS = 512;                                          // slots: recursion depth bound (forks + taps)
+  const sX = new Int32Array(WS), sLN = new Int32Array(WS), sMN = new Int32Array(WS), sFL = new Uint8Array(WS),
+    sWF = new Int32Array(WS), sM = new Uint32Array(WS * 8);
+  let wsp = 0;
+  const wWin = Array.from({ length: WS }, () => new Uint32Array(8));
+  function wDup(si) {
+    const c = wsp++;
+    if (c >= WS) throw new Error('wiggle search too deep');
+    sX[c] = sX[si]; sLN[c] = sLN[si]; sMN[c] = sMN[si]; sFL[c] = sFL[si]; sWF[c] = sWF[si];
+    for (let i = 0; i < 8; i++) sM[c * 8 + i] = sM[si * 8 + i];
+    return c;
+  }
+  // Bits of word i (phases 32i..32i+31) inside the phase range [lo, hi] (0..255, lo <= hi).
+  function rangeWord(lo, hi, i) {
+    const l = Math.max(lo, i * 32), h = Math.min(hi, i * 32 + 31);
+    if (l > h) return 0;
+    const nb = h - l + 1, bits = nb === 32 ? 0xFFFFFFFF : ((1 << nb) - 1) >>> 0;
+    return (bits << (l - i * 32)) >>> 0;
+  }
+  // Phases whose wiggle lands at the end of a frame in [a, b] (b - a < 256), as word i.
+  function windowWord(a, b, i) {
+    const lo = a & 255, hi = lo + (b - a);
+    if (hi <= 255) return rangeWord(lo, hi, i);
+    return (rangeWord(lo, 255, i) | rangeWord(0, hi - 256, i)) >>> 0;
+  }
+  const wMureG = { x: 0, flag: 0 };
+  // Process the events of frame f in slot si (Link's blink first, then the spawner). Returns true if Link blinked.
+  function wEvents(si, f) {
+    let blink = false;
+    if (f === sLN[si]) { blink = true; sX[si] = next(sX[si]); sLN[si] = f + 20 + Math.trunc(f32((sX[si] / 8388608) * 80)); }
+    if (f === sMN[si]) { wMureG.x = sX[si]; wMureG.flag = sFL[si]; sMN[si] = f + mureEvent(wMureG); sX[si] = wMureG.x; sFL[si] = wMureG.flag; }
+    sWF[si] = f;
+    return blink;
+  }
+  // Per-search parameters for run() (module level so the hot path allocates nothing).
+  let wT = null, wn = 0, wms = 0, wtol = 0, wbudget = 0, wpens = null, wLeaves = [];
+  function wLeaf(si, pen, sN, sR, sR2, lastP) {
+    const sse = sR2 - (sR * sR) / sN;
+    wLeaves.push({ m: sM.slice(si * 8, si * 8 + 8), cost: pen + sse, sse, c: sR / sN, lastP });
+  }
+  // stage 0: at tap k's entry (misses = 0). stage 1: walking to the next blink. misses: blinks skipped for tap k.
+  function wRun(si, k, lastk, Plast, errs, pen, sN, sR, sR2, misses, stage) {
+    const T = wT, n = wn, ms = wms, tol = wtol, budget = wbudget, pens = wpens;
+    for (;;) {
+      if (k === n) { wLeaf(si, pen, sN, sR, sR2, Plast); return; }
+      const gap = (T[k] - T[lastk]) / ms, Dn = sLN[si], pred = Dn - Plast;
+      if (stage === 0) {
+        const direct = Math.abs(gap - pred) <= tol;
+        if (!direct) {
+          if (k < 2) return;                                  // the first two taps are back-to-back blinks
+          if (errs < budget && k < n - 1) {                   // tap k was an extra press
+            const c = wDup(si); wRun(c, k + 1, lastk, Plast, errs + 1, pen + pens.extra, sN, sR, sR2, 0, 0); wsp--;
+          }
+          if (!(pred < gap + tol && errs + 1 <= budget)) return;   // can't match, can't be a missed blink
+        }
+        stage = 1;
+      } else if (pred > gap + tol) return;
+      // walk event frames up to and including the blink at Dn, splitting on the wiggle
+      for (;;) {
+        const f = Math.min(sLN[si], sMN[si]), a = sWF[si], b = f - 1;
+        if (b >= a) {
+          // quick test on the 1-2 mask words this gap covers: usually no remaining phase has a wiggle here
+          const lo = a & 255, hi = lo + (b - a);
+          let anyIn = 0;
+          for (let i = lo >>> 5, e = Math.min(hi, 255) >>> 5; i <= e; i++) anyIn |= sM[si * 8 + i] & rangeWord(lo, Math.min(hi, 255), i);
+          if (hi > 255) for (let i = 0, e = (hi - 256) >>> 5; i <= e; i++) anyIn |= sM[si * 8 + i] & rangeWord(0, hi - 256, i);
+          if (!anyIn) { if (wEvents(si, f)) break; continue; }
+          let anyOut = 0;
+          const W8 = wWin[si];   // per-slot scratch for this gap's window words (the recursion below reuses others)
+          for (let i = 0; i < 8; i++) { const m = sM[si * 8 + i], w = W8[i] = windowWord(a, b, i); anyOut |= m & ~w; }
+          if (anyOut) {                              // split: this branch gets the wiggle
+            const c = wDup(si);
+            for (let i = 0; i < 8; i++) { const w = W8[i]; sM[c * 8 + i] &= w; sM[si * 8 + i] &= ~w; }
+            sX[c] = next(sX[c]);
+            sWF[c] = f;                                       // this gap is done for the branch: don't re-split it
+            wRun(c, k, lastk, Plast, errs, pen, sN, sR, sR2, misses, 1); wsp--;
+          } else if (anyIn) sX[si] = next(sX[si]);           // every remaining phase has its wiggle here
+        }
+        if (wEvents(si, f)) break;                            // Link blinked at f (= Dn)
+      }
+      // tap k vs the blink at Dn
+      const match = Math.abs(gap - pred) <= tol && errs + misses <= budget;
+      if (match) {
+        const r = T[k] - Dn * ms;
+        if (misses === 0) { k++; lastk = k - 1; Plast = Dn; sN++; sR += r; sR2 += r * r; stage = 0; continue; }
+        const c = wDup(si);
+        wRun(c, k + 1, k, Dn, errs + misses, pen + misses * pens.miss, sN + 1, sR + r, sR2 + r * r, 0, 0); wsp--;
+      }
+      if (k < 2 || misses >= 5 || errs + misses + 1 > budget || !(pred < gap + tol)) return;
+      misses++;                                               // Link blinked at Dn and tap k missed it
+    }
+  }
+  /*
+   * Fast start for clean searches (no mistake budget, full phase set): up to Link's second blink T1 at most one
+   * wiggle can happen, and only the gap between spawner events it lands in matters. Simulate the no-wiggle path
+   * once, keeping the state after each event; then for each gap (and "no wiggle before T1") replay from that
+   * state to T1, check tap 2 against the drawn interval, and hand only the survivors to wRun with that gap's
+   * phases. No allocation, no slot copies for the ~83% of branches that fail tap 2.
+   */
+  const bF = new Int32Array(64), bX = new Int32Array(64), bMN = new Int32Array(64), bFL = new Uint8Array(64);
+  const fG = { x: 0, flag: 0 };
+  function wFast(S, d, flag) {
+    const T = wT, ms = wms, tol = wtol, g2 = (T[2] - T[1]) / ms;
+    fG.x = next(S); fG.flag = flag;
+    const T1 = 20 + Math.trunc(f32((fG.x / 8388608) * 80));
+    let mn = d;
+    if (mn === 0) mn = mureEvent(fG);                          // spawner at frame 0, after the blink
+    let m = 0;
+    bF[0] = 0; bX[0] = fG.x; bMN[0] = mn; bFL[0] = fG.flag;
+    while (mn < T1 && m < 63) { const f = mn; mn = f + mureEvent(fG); m++; bF[m] = f; bX[m] = fG.x; bMN[m] = mn; bFL[m] = fG.flag; }
+    // branch i = 0..m: wiggle in frames [bF[i], end_i - 1]; branch m + 1: no wiggle before T1
+    for (let i = 0; i <= m + 1; i++) {
+      let x, mn2, fl;
+      if (i <= m) { x = next(bX[i]); mn2 = bMN[i]; fl = bFL[i]; } else { x = bX[m]; mn2 = bMN[m]; fl = bFL[m]; }
+      fG.x = x; fG.flag = fl;
+      if (i <= m) while (mn2 < T1) mn2 = mn2 + mureEvent(fG);    // spawner events after the wiggle, before T1
+      x = next(fG.x);                                          // Link's blink at T1
+      const T2 = 20 + Math.trunc(f32((x / 8388608) * 80));
+      if (Math.abs(g2 - T2) > tol) continue;
+      // survivor: set up a slot right after frame T1's events and continue with the general search from tap 2
+      const si = wsp++;
+      fG.x = x;
+      if (mn2 === T1) mn2 = T1 + mureEvent(fG);                // spawner at T1, after the blink
+      sX[si] = fG.x; sLN[si] = T1 + T2; sMN[si] = mn2; sFL[si] = fG.flag; sWF[si] = T1;
+      const a = i <= m ? bF[i] : 0, b = i < m ? bF[i + 1] - 1 : T1 - 1;
+      for (let w = 0; w < 8; w++) { const ww = windowWord(a, b, w); sM[si * 8 + w] = i <= m ? ww : ~ww >>> 0; }
+      const r1 = T[1] - T1 * ms;
+      wRun(si, 2, 1, T1, 0, 0, 2, T[0] + r1, T[0] * T[0] + r1 * r1, 0, 0);
+      wsp--;
+    }
+  }
+  function searchWiggle(S, d, flag, mask0, obs, ms, tol, budget, pens, out) {
+    if (!wT || wT.src !== obs) { wT = obs.map((o) => o.t); wT.src = obs; }
+    wn = obs.length; wms = ms; wtol = tol; wbudget = budget; wpens = pens; wLeaves = [];
+    const T = wT, leaves = wLeaves;
+    const base = wsp;
+    try {
+      if (budget === 0 && !mask0 && wn >= 3) wFast(S, d, flag);
+      else {
+        const si = wsp++;
+        sX[si] = S; sLN[si] = 0; sMN[si] = d; sFL[si] = flag; sWF[si] = 0;
+        for (let i = 0; i < 8; i++) sM[si * 8 + i] = mask0 ? mask0[i] : 0xFFFFFFFF;
+        wEvents(si, 0);                                        // frame 0: tap 0's blink (and the spawner if d = 0)
+        wRun(si, 1, 0, 0, 0, 0, 1, T[0], T[0] * T[0], 0, 0);
+      }
+    } finally { wsp = base; }
+    if (!leaves.length) return;
+    // Different paths can leave overlapping phase sets: give each phase its best leaf, then group phases by leaf.
+    const owner = new Int32Array(WIG).fill(-1);
+    for (let P = 0; P < WIG; P++) {
+      const wi = P >>> 5, bit = 1 << (P & 31);
+      for (let L = 0; L < leaves.length; L++) if ((leaves[L].m[wi] & bit) && (owner[P] < 0 || leaves[L].cost < leaves[owner[P]].cost)) owner[P] = L;
+    }
+    for (let L = 0; L < leaves.length; L++) {
+      const mask = [0, 0, 0, 0, 0, 0, 0, 0];
+      let any = false;
+      for (let P = 0; P < WIG; P++) if (owner[P] === L) { mask[P >>> 5] = (mask[P >>> 5] | (1 << (P & 31))) >>> 0; any = true; }
+      if (any) out.push({ S, d, flag, e: 0, fid0: Infinity, cost: leaves[L].cost, sse: leaves[L].sse, c: leaves[L].c, lastP: leaves[L].lastP, mask });
+    }
+  }
+
+  function searchSlice(obs, opts) {
+    const ms = opts.ms, sigma = opts.sigma, tol = 4.5 * sigma * Math.SQRT2 / ms + 0.5;
+    const pens = { miss: 2 * sigma * sigma * Math.log(1 / 0.05), extra: 2 * sigma * sigma * Math.log(1 / 0.03) };
+    const g1 = (obs[1].t - obs[0].t) / ms;
+    const fidIdx = opts.mode === 'fidgets' ? obs.findIndex((o) => o.kind === 'f') : -1;
+    const eR = fidIdx >= 0 ? Math.ceil(3 * sigma / ms) + 1 : 0;      // the fidget-start press is good to about 3 sigma
+    const fid0Base = fidIdx >= 0 ? Math.round((obs[fidIdx].t - obs[0].t) / ms) - 6 : Infinity;
+    const prefix = fidIdx >= 3 ? obs.slice(0, fidIdx) : null;          // blinks before the first fidget: no fidget yet
+    const quick = opts.budget === 0 && obs.length > 2 && obs[2].kind === 'b';
+    const g2 = quick ? (obs[2].t - obs[1].t) / ms : 0;
+    const out = [];
+    for (let S = opts.S0; S < opts.S1; S++) {
+      const x1 = next(S);
+      const T1 = 20 + Math.trunc(f32((x1 / 8388608) * 80));
+      if (Math.abs(g1 - T1) > tol) continue;           // the first gap is drawn at frame 0, before any wiggle
+      if (opts.wiggle) {
+        for (let flag = 0; flag < 2; flag++) for (let d = 0; d <= (flag ? 13 : 43); d++) searchWiggle(S, d, flag, null, obs, ms, tol, opts.budget, pens, out);
+        continue;
+      }
+      for (let flag = 0; flag < 2; flag++) {
+        for (let d = 0; d <= (flag ? 13 : 43); d++) {
+          if (quick && Math.abs(g2 - (thirdDraw(S, d, flag) - T1)) > tol) continue;
+          if (prefix) {
+            const gp = makeGen(S, d, flag, Infinity); needDraw(gp, 1);
+            if (!alignCandidate(gp, prefix, null, ms, tol, opts.budget, pens)) continue;
+          }
+          for (let e = -eR; e <= eR; e++) {
+            const fid0 = fid0Base + e;
+            if (fid0 <= 0) continue;
+            const g = makeGen(S, d, flag, fid0);
+            needDraw(g, 1);
+            const r = alignCandidate(g, obs, null, ms, tol, opts.budget, pens);
+            if (r) out.push({ S, d, flag, e, fid0, cost: r.cost, sse: r.sse, c: r.c, lastP: r.lastP });
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  // Re-score one known candidate against a longer list of presses (incremental update after a new press).
+  function evalCandidate(obs, cd, opts) {
+    const ms = opts.ms, sigma = opts.sigma, tol = 4.5 * sigma * Math.SQRT2 / ms + 0.5;
+    const pens = { miss: 2 * sigma * sigma * Math.log(1 / 0.05), extra: 2 * sigma * sigma * Math.log(1 / 0.03) };
+    const x1 = next(cd.S), T1 = 20 + Math.trunc(f32((x1 / 8388608) * 80));
+    if (Math.abs((obs[1].t - obs[0].t) / ms - T1) > tol) return opts.wiggle ? [] : null;
+    if (opts.wiggle) {   // may split into several candidates (phase subsets)
+      const out = [];
+      searchWiggle(cd.S, cd.d, cd.flag, cd.mask || null, obs, ms, tol, opts.budget, pens, out);
+      return out;
+    }
+    const g = makeGen(cd.S, cd.d, cd.flag, cd.fid0 === undefined ? Infinity : cd.fid0);
+    needDraw(g, 1);
+    const r = alignCandidate(g, obs, null, ms, tol, opts.budget, pens);
+    return r ? { S: cd.S, d: cd.d, flag: cd.flag, e: cd.e, fid0: cd.fid0, cost: r.cost, sse: r.sse, c: r.c, lastP: r.lastP } : null;
+  }
+
+  // Goodness-of-fit threshold for the adaptive mistake budget.
+  function fitOK(best, n, sigma) { const dof = n - 1; return best <= sigma * sigma * (dof + 4 * Math.sqrt(2 * dof)); }
+
+  /*
+   * Exact future of one candidate for crit-wiggle phase P (-1: none): xs[f] = the RNG state a grass cut on frame f
+   * sees (after Link's blink on f, before the spawner and the end-of-frame wiggle); fidAt[f] = 1 if a fidget roll
+   * happens on f. Frames 0..span.
+   */
+  function trajectory(cd, P, span) {
+    const g = makeGen(cd.S, cd.d, cd.flag, cd.fid0, P);
+    const xs = new Int32Array(span + 1), fidAt = new Uint8Array(span + 2);
+    let f = 0;
+    while (f <= span) {
+      const nf = Math.min(g.linkNext, g.fidNext, g.mureNext);
+      // crit wiggle at the end of frame w (w in [wfrom, nf-1]): frames after w see the new state
+      const w = P >= 0 ? wigFrom(P, g.wfrom) : Infinity, hit = w <= nf - 1;
+      while (f < nf && f <= span) { if (hit && f === w + 1) g.x = next(g.x); xs[f] = g.x; f++; }
+      if (hit && f <= w + 1) g.x = next(g.x);   // the wiggle was in the last frame before nf (or span ended)
+      g.wfrom = nf;
+      if (f > span) break;
+      // frame nf: Link's blink first, record the state, then the rest of the frame
+      if (nf === g.linkNext) { g.x = next(g.x); g.linkNext = nf + 20 + Math.trunc(f32((g.x / 8388608) * 80)); }
+      xs[nf] = g.x;
+      if (nf === g.fidNext) {
+        fidAt[nf] = 1;
+        g.x = next(g.x);
+        const ct = Math.trunc(f32((g.x / 8388608) * 5)), t = ct === 1 ? 'T' : ct === 2 ? 'P' : 'A';
+        g.fidNext = nf + FID_LEN[t] + PLAIN;
+      }
+      if (nf === g.mureNext) g.mureNext = nf + mureEvent(g);
+      f = nf + 1;
+    }
+    return { xs, fidAt };
+  }
+
+  /*
+   * Recommendation. plaus: plausible candidates (sorted, best first). Returns the first stretch of B-press frames
+   * (in the best candidate's numbering) where every plausible candidate gives a magic drop for a cut slashDelay
+   * frames later, with no fidget roll between the press and the cut. Times are in ms on the press clock.
+   */
+  function recommend(plaus, opts) {
+    const ms = opts.ms, delay = opts.slashDelay, best = plaus[0];
+    const magic = opts.magicSlots || MAGIC_SLOTS;
+    const span = best.lastP + opts.horizon + delay + 400;
+    // One trajectory per candidate, or per still-possible crit-wiggle phase when the wiggle is modeled: every
+    // phase left in a candidate's mask is a separate future, and the window must work for all of them.
+    const jobs = [];
+    for (const cd of plaus) {
+      if (!opts.wiggle || !cd.mask) { jobs.push([cd, -1]); continue; }
+      for (let P = 0; P < WIG; P++) if ((cd.mask[P >>> 5] >>> (P & 31)) & 1) jobs.push([cd, P]);
+    }
+    if (jobs.length > (opts.maxTraj || 8000)) return null;   // too many futures to agree yet: keep pressing
+    const traj = jobs.map(([cd, P]) => ({ ...trajectory(cd, P, span), c: cd.c }));
+    const good = (p) => {
+      const t = best.c + p * ms;
+      for (const tr of traj) {
+        const pi = Math.round((t - tr.c) / ms), ci = pi + delay;
+        if (pi < 0 || ci > span) return false;
+        for (let q = pi - 1; q <= ci; q++) if (tr.fidAt[q]) return false;
+        if (!magic.has(rollSlot(tr.xs[ci]))) return false;
+      }
+      return true;
+    };
+    const pMin = best.lastP + Math.ceil(opts.leadMs / ms);
+    let run = 0, start = -1;
+    for (let p = pMin; p <= best.lastP + opts.horizon; p++) {
+      if (good(p)) { if (!run) start = p; run++; }
+      else { if (run >= opts.wmin) break; run = 0; }
+    }
+    if (run < opts.wmin) return null;
+    const center = start + (run - 1) / 2;
+    // real time of frame f = c + f*ms - delta + 6*ms (the blink press convention); B pressed on the beep, no reaction
+    return { pressFrame: center, windowFrames: run, pressTimeMs: best.c + center * ms - opts.delta + 6 * ms };
+  }
+
+  /*
+   * Candidate store for one search shard (one Web Worker, or the page itself when workers are unavailable).
+   * Every surviving candidate is kept in typed arrays, so a few million fit in tens of MB, and each new tap is
+   * re-checked in place. Only small summaries ({n, best} and the plausible list) ever leave the shard, which keeps
+   * the page's own thread free to register taps.
+   * pause: optional async function; when given, long loops yield to it about every 8 ms (main-thread fallback).
+   */
+  function makeShard() {
+    let cap = 0, n = 0, S = null, DF = null, COST = null, CC = null, LP = null, MK = null;   // MK: 8 phase-mask words per candidate
+    const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    function ensure(m) {
+      if (m <= cap) return;
+      const nc = Math.max(m, cap * 2, 4096);
+      const grow = (A, T) => { const b = new T(nc); if (A) b.set(A.subarray(0, n)); return b; };
+      S = grow(S, Int32Array); DF = grow(DF, Uint8Array); COST = grow(COST, Float64Array); CC = grow(CC, Float64Array); LP = grow(LP, Int32Array);
+      const mk = new Uint32Array(nc * 8); if (MK) mk.set(MK.subarray(0, n * 8)); MK = mk;
+      cap = nc;
+    }
+    // d (0..43) in the low 6 bits, the spawner's long/short flag in bit 6
+    function put(i, c) {
+      S[i] = c.S; DF[i] = c.d | (c.flag << 6); COST[i] = c.cost; CC[i] = c.c; LP[i] = c.lastP;
+      for (let w = 0; w < 8; w++) MK[i * 8 + w] = c.mask ? c.mask[w] : 0xFFFFFFFF;   // no wiggle model: all phases
+    }
+    const maskOf = (i) => Array.from(MK.subarray(i * 8, i * 8 + 8));
+    function summary() { let b = Infinity; for (let i = 0; i < n; i++) if (COST[i] < b) b = COST[i]; return { n, best: b }; }
+    return {
+      clear() { n = 0; return summary(); },
+      // Append the candidates from RNG states [opts.S0, opts.S1).
+      async search(obs, opts, pause) {
+        const STEP = pause ? 256 : opts.S1 - opts.S0;
+        let t0 = clock();
+        for (let a = opts.S0; a < opts.S1; a += STEP) {
+          const r = searchSlice(obs, { ...opts, S0: a, S1: Math.min(opts.S1, a + STEP) });
+          ensure(n + r.length);
+          for (const c of r) put(n++, c);
+          if (pause && clock() - t0 > 8) { await pause(); t0 = clock(); }
+        }
+        return summary();
+      },
+      // Re-check every stored candidate against the longer tap list (same mistake budget); drop misfits.
+      async eval(obs, opts, pause) {
+        if (opts.wiggle) return this.evalWiggle(obs, opts, pause);
+        let w = 0, t0 = clock();
+        for (let i = 0; i < n; i++) {
+          const r = evalCandidate(obs, { S: S[i], d: DF[i] & 63, flag: DF[i] >> 6, fid0: Infinity }, opts);
+          if (r) put(w++, r);   // w <= i, and slot i was read above, so compacting in place is safe
+          if (pause && (i & 255) === 255 && clock() - t0 > 8) { await pause(); t0 = clock(); }
+        }
+        n = w;
+        return summary();
+      },
+      // Wiggle model: one stored candidate can split into several (phase subsets), so rebuild the store.
+      async evalWiggle(obs, opts, pause) {
+        const old = { S: S.slice(0, n), DF: DF.slice(0, n), MK: MK.slice(0, n * 8) }, m = n;
+        n = 0;
+        let t0 = clock();
+        for (let i = 0; i < m; i++) {
+          const rs = evalCandidate(obs, { S: old.S[i], d: old.DF[i] & 63, flag: old.DF[i] >> 6, fid0: Infinity, mask: old.MK.subarray(i * 8, i * 8 + 8) }, opts);
+          ensure(n + rs.length);
+          for (const r of rs) put(n++, r);
+          if (pause && (i & 63) === 63 && clock() - t0 > 8) { await pause(); t0 = clock(); }
+        }
+        return summary();
+      },
+      // Candidates with cost <= thr: how many, and the `limit` best as plain objects for recommend().
+      plaus(thr, limit) {
+        const idx = [];
+        for (let i = 0; i < n; i++) if (COST[i] <= thr) idx.push(i);
+        idx.sort((a, b) => COST[a] - COST[b]);
+        return { count: idx.length, list: idx.slice(0, limit).map((i) => ({ S: S[i], d: DF[i] & 63, flag: DF[i] >> 6, fid0: Infinity, cost: COST[i], c: CC[i], lastP: LP[i], mask: maskOf(i) })) };
+      },
+    };
+  }
+
+  const api = { WIG, wigFrom, trajectory, makeShard, searchSlice, evalCandidate, recommend, fitOK, rollSlot, MAGIC_SLOTS, makeGen, needDraw, step, FID_LEN, PLAIN, next };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GrottoCore = api;
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script id="core-text" type="text/plain">/*
+ * Grotto blink calculator core (NTSC 1.2 N64, Prescription GIM grotto, camera-in-front spot).
+ * Model validated frame-for-frame in mupen64plus (docs/research/PRESCRIPTION_GIM_MAGIC_DROP_ODDS_2026-10-31.md §8–9):
+ *   per frame: Link's blink (FaceChange_UpdateBlinking: next blink 20 + (s16)(r*80) frames later), then Link's action
+ *   (idle fidget choice in "fidgets" mode: (s32)(r*5): 1 tunic 90f, 2 tap feet 100f, else look-around 184f; each fidget
+ *   follows 89 frames of plain idle), then a grass cut (48 debris draws, then the drop roll (s16)(r*16)), then the
+ *   butterfly spawner (ObjMure_GroupBehavior1). RNG = low 23 bits of the LCG, Rand_ZeroOne = x / 2^23.
+ * Observations: press times (ms). Blink presses mark a blink (any constant delay); fidget presses mark the start
+ *   of a fidget and say which one. Frame 0 = the first blink press; the first two presses must be blinks.
+ */
+(function (root) {
+  'use strict';
+  const MASK = 0x7FFFFF, LA = 1664525 & MASK, LC = 1013904223 & MASK, f32 = Math.fround;
+  const next = (x) => (Math.imul(x, LA) + LC) & MASK;
+  const F02 = f32(0.2), F07 = f32(0.7);
+  const FID_LEN = { A: 184, T: 90, P: 100 };   // look-around, tunic, tap feet
+  const PLAIN = 89, EYE_MARGIN = 3;
+  const MAGIC_SLOTS = new Set([2, 14, 15]);     // drop table 2; 14 = flexible (magic with >5 hearts, empty meter)
+
+  // 49-step jump (48 debris draws + the roll) as an affine map, computed with BigInt once.
+  let A49 = 1n, C49 = 0n;
+  for (let i = 0; i < 49; i++) { C49 = (C49 * BigInt(LA) + BigInt(LC)) & 0x7FFFFFn; A49 = (A49 * BigInt(LA)) & 0x7FFFFFn; }
+  const A49n = Number(A49), C49n = Number(C49);
+  const rollSlot = (xAfterLink) => {
+    const x = (Math.imul(xAfterLink, A49n) + C49n) & MASK;
+    return Math.trunc(f32((x / 8388608) * 16));
+  };
+
+  function mureEvent(g) {
+    let x = g.x, rmax, longt;
+    x = next(x);
+    if (g.flag) { g.flag = 0; rmax = f32((x / 8388608) * F02); longt = 1; }
+    else { g.flag = 1; rmax = f32((x / 8388608) * F07); longt = 0; }
+    for (let i = 0; i < 3; i++) { x = next(x); if (x / 8388608 <= rmax) x = next(x); }
+    x = next(x);
+    const r = x / 8388608;
+    g.x = x;
+    return (longt ? Math.trunc(f32(r * 40.5)) : Math.trunc(f32(r * 10.5))) + 4;
+  }
+
+  /*
+   * Crit wiggle (Camera_Normal1, health <= 16, i.e. 1 heart or less): one RNG call in every frame where
+   * GameState.frames % 256 == 0. Camera_Update runs after Actor_UpdateAll, so the call is at the END of the frame,
+   * after Link and the spawner. Emulator check (NTSC 1.2, this grotto, shield held, 1 heart): the model with the
+   * wiggle matched 1,399 of 1,399 frames; without it the match broke at the first wiggle.
+   * The calculator doesn't know GameState.frames, so the phase P (0..255) is an unknown: wiggles happen at the end
+   * of frames P, P+256, P+512, ... counted from frame 0 = the first blink press.
+   */
+  const WIG = 256;
+  // Frame of the first wiggle at or after frame a, for phase P.
+  const wigFrom = (P, a) => a + ((((P - a) % WIG) + WIG) % WIG);
+
+  // Lazy simulator. fid0: frame of the first fidget after frame 0 (fidgets mode) or Infinity.
+  // P: crit-wiggle phase (0..255), or -1/undefined for no wiggle (more than 1 heart).
+  function makeGen(S, d, flag, fid0, P) {
+    return { x: S, frame: 0, wfrom: 0, P: P === undefined ? -1 : P, linkNext: 0, mureNext: d, flag, fidNext: fid0, D: [], F: [], T: [], Fend: [] };
+  }
+  function step(g) {   // process the next frame that has an event
+    const f = Math.min(g.linkNext, g.fidNext, g.mureNext);
+    // a wiggle at the end of a frame in [wfrom, f-1] comes before this frame's events (at most one: gaps < 256)
+    if (g.P >= 0 && wigFrom(g.P, g.wfrom) <= f - 1) g.x = next(g.x);
+    g.wfrom = f;
+    if (f === g.linkNext) { g.D.push(f); g.x = next(g.x); g.linkNext = f + 20 + Math.trunc(f32((g.x / 8388608) * 80)); }
+    if (f === g.fidNext) {
+      g.x = next(g.x);
+      const ct = Math.trunc(f32((g.x / 8388608) * 5));
+      const t = ct === 1 ? 'T' : ct === 2 ? 'P' : 'A';
+      g.F.push(f); g.T.push(t); g.Fend.push(f + FID_LEN[t]); g.fidNext = f + FID_LEN[t] + PLAIN;
+    }
+    if (f === g.mureNext) g.mureNext = f + mureEvent(g);
+    g.frame = f + 1;
+  }
+  function needDraw(g, j) { let guard = 0; while (g.D.length <= j && guard++ < 4000) step(g); }
+  function needFid(g, k) { let guard = 0; while (g.F.length <= k && g.fidNext !== Infinity && guard++ < 4000) step(g); }
+  function needFrame(g, f) { let guard = 0; while (Math.min(g.linkNext, g.fidNext, g.mureNext) <= f && guard++ < 4000) step(g); }
+
+  // Eye visibility of the blink drawn on frame D: closed-eye frames are D-4..D-2.
+  // 'v' visible, 'u' uncertain (near an animation change), 'h' hidden (inside a fidget).
+  function vis(g, D) {
+    if (g.fidNext === Infinity && g.F.length === 0) return 'v';
+    const e = D - 3;
+    needFrame(g, e);   // all fidgets starting by frame e are now known, and g.fidNext is the next one
+    let lo = -Infinity;
+    for (let k = 0; k <= g.F.length; k++) {
+      const hi = k < g.F.length ? g.F[k] : g.fidNext;     // plain idle window [lo, hi)
+      if (e < hi) {
+        if (e >= lo) return (e - lo < EYE_MARGIN || hi - e <= EYE_MARGIN) ? 'u' : 'v';
+        return (lo - e <= EYE_MARGIN) ? 'u' : 'h';
+      }
+      if (k < g.F.length) lo = g.Fend[k];
+    }
+    return 'v';
+  }
+
+  // Alignment of observations to one candidate. Returns {cost, sse, c, P[]} or null.
+  function alignCandidate(g, obs, P, ms, tol, budget, pens) {
+    let best = null;
+    const cur = new Array(obs.length).fill(null);
+    cur[0] = 0; cur[1] = g.D[1];
+    function finish(pen) {
+      let c = 0, m = 0;
+      for (let k = 0; k < obs.length; k++) if (cur[k] !== null) { c += obs[k].t - cur[k] * ms; m++; }
+      c /= m;
+      let sse = 0;
+      for (let k = 0; k < obs.length; k++) if (cur[k] !== null) { const r = obs[k].t - cur[k] * ms - c; sse += r * r; }
+      const cost = sse + pen;
+      if (!best || cost < best.cost) best = { cost, sse, c, P: cur.slice(), lastP: lastMatched() };
+    }
+    function lastMatched() { for (let k = obs.length - 1; k >= 0; k--) if (cur[k] !== null) return cur[k]; return 0; }
+    function rec(k, lastk, j, kf, errs, pen) {
+      if (best && pen >= best.cost) return;
+      if (k === obs.length) { finish(pen); return; }
+      const o = obs[k], gap = (o.t - obs[lastk].t) / ms, Plast = cur[lastk];
+      if (o.kind === 'f') {
+        needFid(g, kf);
+        if (kf < g.F.length) {
+          const Pf = g.F[kf] + 6;
+          // a visible, unpressed blink between the last match and this fidget counts as a miss
+          let misses = 0;
+          needDraw(g, j + 1);
+          for (let jj = j + 1; jj < g.D.length && g.D[jj] < g.F[kf]; jj++) { if (vis(g, g.D[jj]) === 'v') misses++; needDraw(g, jj + 1); }
+          if (g.T[kf] === o.type && Math.abs(gap - (Pf - Plast)) <= tol && errs + misses <= budget) {
+            // advance j past blinks before the fidget
+            let jn = j; while (jn + 1 < g.D.length && g.D[jn + 1] < g.F[kf]) jn++;
+            cur[k] = Pf;
+            rec(k + 1, k, jn, kf + 1, errs + misses, pen + misses * pens.miss);
+            cur[k] = null;
+          }
+        }
+      } else {
+        let matchedDirect = false;
+        let misses = 0;
+        for (let jj = j + 1; jj < j + 1 + 6; jj++) {
+          needDraw(g, jj);
+          if (jj >= g.D.length) break;
+          const D = g.D[jj];
+          needFid(g, kf);
+          if (kf < g.F.length && D > g.F[kf] + 6 + tol) break;          // an unpressed fidget would lie before it
+          const pred = D - Plast;
+          if (pred > gap + tol) break;
+          const v = vis(g, D);
+          if (v !== 'h' && Math.abs(gap - pred) <= tol && errs + misses <= budget) {
+            cur[k] = D;
+            rec(k + 1, k, jj, kf, errs + misses, pen + misses * pens.miss);
+            cur[k] = null;
+            if (misses === 0) { matchedDirect = true; break; }
+          }
+          if (v === 'v') misses++;
+        }
+        if (matchedDirect) return;
+      }
+      if (errs < budget && k < obs.length - 1) { cur[k] = null; rec(k + 1, lastk, j, kf, errs + 1, pen + pens.extra); }
+    }
+    rec(2, 1, 1, 0, 0, 0);
+    return best;
+  }
+
+  /*
+   * Search a slice of RNG states. opts: {mode:'blinks'|'fidgets', ms, sigma, budget, S0, S1}.
+   * Returns an array of candidates {S,d,flag,e,cost,sse,c,lastP}.
+   */
+  // Frame of Link's third blink draw (index 2) with no fidgets, for a cheap early check.
+  function thirdDraw(S, d, flag) {
+    const g = { x: S, flag };
+    let linkNext = 0, mureNext = d, n = 0, D = 0;
+    for (let guard = 0; guard < 400; guard++) {
+      const f = Math.min(linkNext, mureNext);
+      if (f === linkNext) { if (n === 2) return f; n++; g.x = next(g.x); linkNext = f + 20 + Math.trunc(f32((g.x / 8388608) * 80)); }
+      if (f === mureNext) mureNext = f + mureEvent(g);
+    }
+    return -1;
+  }
+
+  /*
+   * Search with the crit wiggle (opts.wiggle). Same blink model and mistake budget as alignCandidate, but the
+   * wiggle phase P is unknown, so each candidate also carries the SET of phases still possible: a 256-bit mask in
+   * 8 words. Going from one event frame to the next, a wiggle falls in the gap for some phases and not others; the
+   * search then splits into "wiggle here" and "not here" (each keeping its part of the mask), and the taps prune
+   * the branches. Only the gap a wiggle lands in matters for the events, not its exact frame, so the number of
+   * branches stays small. The generator state lives in preallocated slots (no allocation in the hot path).
+   */
+  const WS = 512;                                          // slots: recursion depth bound (forks + taps)
+  const sX = new Int32Array(WS), sLN = new Int32Array(WS), sMN = new Int32Array(WS), sFL = new Uint8Array(WS),
+    sWF = new Int32Array(WS), sM = new Uint32Array(WS * 8);
+  let wsp = 0;
+  const wWin = Array.from({ length: WS }, () => new Uint32Array(8));
+  function wDup(si) {
+    const c = wsp++;
+    if (c >= WS) throw new Error('wiggle search too deep');
+    sX[c] = sX[si]; sLN[c] = sLN[si]; sMN[c] = sMN[si]; sFL[c] = sFL[si]; sWF[c] = sWF[si];
+    for (let i = 0; i < 8; i++) sM[c * 8 + i] = sM[si * 8 + i];
+    return c;
+  }
+  // Bits of word i (phases 32i..32i+31) inside the phase range [lo, hi] (0..255, lo <= hi).
+  function rangeWord(lo, hi, i) {
+    const l = Math.max(lo, i * 32), h = Math.min(hi, i * 32 + 31);
+    if (l > h) return 0;
+    const nb = h - l + 1, bits = nb === 32 ? 0xFFFFFFFF : ((1 << nb) - 1) >>> 0;
+    return (bits << (l - i * 32)) >>> 0;
+  }
+  // Phases whose wiggle lands at the end of a frame in [a, b] (b - a < 256), as word i.
+  function windowWord(a, b, i) {
+    const lo = a & 255, hi = lo + (b - a);
+    if (hi <= 255) return rangeWord(lo, hi, i);
+    return (rangeWord(lo, 255, i) | rangeWord(0, hi - 256, i)) >>> 0;
+  }
+  const wMureG = { x: 0, flag: 0 };
+  // Process the events of frame f in slot si (Link's blink first, then the spawner). Returns true if Link blinked.
+  function wEvents(si, f) {
+    let blink = false;
+    if (f === sLN[si]) { blink = true; sX[si] = next(sX[si]); sLN[si] = f + 20 + Math.trunc(f32((sX[si] / 8388608) * 80)); }
+    if (f === sMN[si]) { wMureG.x = sX[si]; wMureG.flag = sFL[si]; sMN[si] = f + mureEvent(wMureG); sX[si] = wMureG.x; sFL[si] = wMureG.flag; }
+    sWF[si] = f;
+    return blink;
+  }
+  // Per-search parameters for run() (module level so the hot path allocates nothing).
+  let wT = null, wn = 0, wms = 0, wtol = 0, wbudget = 0, wpens = null, wLeaves = [];
+  function wLeaf(si, pen, sN, sR, sR2, lastP) {
+    const sse = sR2 - (sR * sR) / sN;
+    wLeaves.push({ m: sM.slice(si * 8, si * 8 + 8), cost: pen + sse, sse, c: sR / sN, lastP });
+  }
+  // stage 0: at tap k's entry (misses = 0). stage 1: walking to the next blink. misses: blinks skipped for tap k.
+  function wRun(si, k, lastk, Plast, errs, pen, sN, sR, sR2, misses, stage) {
+    const T = wT, n = wn, ms = wms, tol = wtol, budget = wbudget, pens = wpens;
+    for (;;) {
+      if (k === n) { wLeaf(si, pen, sN, sR, sR2, Plast); return; }
+      const gap = (T[k] - T[lastk]) / ms, Dn = sLN[si], pred = Dn - Plast;
+      if (stage === 0) {
+        const direct = Math.abs(gap - pred) <= tol;
+        if (!direct) {
+          if (k < 2) return;                                  // the first two taps are back-to-back blinks
+          if (errs < budget && k < n - 1) {                   // tap k was an extra press
+            const c = wDup(si); wRun(c, k + 1, lastk, Plast, errs + 1, pen + pens.extra, sN, sR, sR2, 0, 0); wsp--;
+          }
+          if (!(pred < gap + tol && errs + 1 <= budget)) return;   // can't match, can't be a missed blink
+        }
+        stage = 1;
+      } else if (pred > gap + tol) return;
+      // walk event frames up to and including the blink at Dn, splitting on the wiggle
+      for (;;) {
+        const f = Math.min(sLN[si], sMN[si]), a = sWF[si], b = f - 1;
+        if (b >= a) {
+          // quick test on the 1-2 mask words this gap covers: usually no remaining phase has a wiggle here
+          const lo = a & 255, hi = lo + (b - a);
+          let anyIn = 0;
+          for (let i = lo >>> 5, e = Math.min(hi, 255) >>> 5; i <= e; i++) anyIn |= sM[si * 8 + i] & rangeWord(lo, Math.min(hi, 255), i);
+          if (hi > 255) for (let i = 0, e = (hi - 256) >>> 5; i <= e; i++) anyIn |= sM[si * 8 + i] & rangeWord(0, hi - 256, i);
+          if (!anyIn) { if (wEvents(si, f)) break; continue; }
+          let anyOut = 0;
+          const W8 = wWin[si];   // per-slot scratch for this gap's window words (the recursion below reuses others)
+          for (let i = 0; i < 8; i++) { const m = sM[si * 8 + i], w = W8[i] = windowWord(a, b, i); anyOut |= m & ~w; }
+          if (anyOut) {                              // split: this branch gets the wiggle
+            const c = wDup(si);
+            for (let i = 0; i < 8; i++) { const w = W8[i]; sM[c * 8 + i] &= w; sM[si * 8 + i] &= ~w; }
+            sX[c] = next(sX[c]);
+            sWF[c] = f;                                       // this gap is done for the branch: don't re-split it
+            wRun(c, k, lastk, Plast, errs, pen, sN, sR, sR2, misses, 1); wsp--;
+          } else if (anyIn) sX[si] = next(sX[si]);           // every remaining phase has its wiggle here
+        }
+        if (wEvents(si, f)) break;                            // Link blinked at f (= Dn)
+      }
+      // tap k vs the blink at Dn
+      const match = Math.abs(gap - pred) <= tol && errs + misses <= budget;
+      if (match) {
+        const r = T[k] - Dn * ms;
+        if (misses === 0) { k++; lastk = k - 1; Plast = Dn; sN++; sR += r; sR2 += r * r; stage = 0; continue; }
+        const c = wDup(si);
+        wRun(c, k + 1, k, Dn, errs + misses, pen + misses * pens.miss, sN + 1, sR + r, sR2 + r * r, 0, 0); wsp--;
+      }
+      if (k < 2 || misses >= 5 || errs + misses + 1 > budget || !(pred < gap + tol)) return;
+      misses++;                                               // Link blinked at Dn and tap k missed it
+    }
+  }
+  /*
+   * Fast start for clean searches (no mistake budget, full phase set): up to Link's second blink T1 at most one
+   * wiggle can happen, and only the gap between spawner events it lands in matters. Simulate the no-wiggle path
+   * once, keeping the state after each event; then for each gap (and "no wiggle before T1") replay from that
+   * state to T1, check tap 2 against the drawn interval, and hand only the survivors to wRun with that gap's
+   * phases. No allocation, no slot copies for the ~83% of branches that fail tap 2.
+   */
+  const bF = new Int32Array(64), bX = new Int32Array(64), bMN = new Int32Array(64), bFL = new Uint8Array(64);
+  const fG = { x: 0, flag: 0 };
+  function wFast(S, d, flag) {
+    const T = wT, ms = wms, tol = wtol, g2 = (T[2] - T[1]) / ms;
+    fG.x = next(S); fG.flag = flag;
+    const T1 = 20 + Math.trunc(f32((fG.x / 8388608) * 80));
+    let mn = d;
+    if (mn === 0) mn = mureEvent(fG);                          // spawner at frame 0, after the blink
+    let m = 0;
+    bF[0] = 0; bX[0] = fG.x; bMN[0] = mn; bFL[0] = fG.flag;
+    while (mn < T1 && m < 63) { const f = mn; mn = f + mureEvent(fG); m++; bF[m] = f; bX[m] = fG.x; bMN[m] = mn; bFL[m] = fG.flag; }
+    // branch i = 0..m: wiggle in frames [bF[i], end_i - 1]; branch m + 1: no wiggle before T1
+    for (let i = 0; i <= m + 1; i++) {
+      let x, mn2, fl;
+      if (i <= m) { x = next(bX[i]); mn2 = bMN[i]; fl = bFL[i]; } else { x = bX[m]; mn2 = bMN[m]; fl = bFL[m]; }
+      fG.x = x; fG.flag = fl;
+      if (i <= m) while (mn2 < T1) mn2 = mn2 + mureEvent(fG);    // spawner events after the wiggle, before T1
+      x = next(fG.x);                                          // Link's blink at T1
+      const T2 = 20 + Math.trunc(f32((x / 8388608) * 80));
+      if (Math.abs(g2 - T2) > tol) continue;
+      // survivor: set up a slot right after frame T1's events and continue with the general search from tap 2
+      const si = wsp++;
+      fG.x = x;
+      if (mn2 === T1) mn2 = T1 + mureEvent(fG);                // spawner at T1, after the blink
+      sX[si] = fG.x; sLN[si] = T1 + T2; sMN[si] = mn2; sFL[si] = fG.flag; sWF[si] = T1;
+      const a = i <= m ? bF[i] : 0, b = i < m ? bF[i + 1] - 1 : T1 - 1;
+      for (let w = 0; w < 8; w++) { const ww = windowWord(a, b, w); sM[si * 8 + w] = i <= m ? ww : ~ww >>> 0; }
+      const r1 = T[1] - T1 * ms;
+      wRun(si, 2, 1, T1, 0, 0, 2, T[0] + r1, T[0] * T[0] + r1 * r1, 0, 0);
+      wsp--;
+    }
+  }
+  function searchWiggle(S, d, flag, mask0, obs, ms, tol, budget, pens, out) {
+    if (!wT || wT.src !== obs) { wT = obs.map((o) => o.t); wT.src = obs; }
+    wn = obs.length; wms = ms; wtol = tol; wbudget = budget; wpens = pens; wLeaves = [];
+    const T = wT, leaves = wLeaves;
+    const base = wsp;
+    try {
+      if (budget === 0 && !mask0 && wn >= 3) wFast(S, d, flag);
+      else {
+        const si = wsp++;
+        sX[si] = S; sLN[si] = 0; sMN[si] = d; sFL[si] = flag; sWF[si] = 0;
+        for (let i = 0; i < 8; i++) sM[si * 8 + i] = mask0 ? mask0[i] : 0xFFFFFFFF;
+        wEvents(si, 0);                                        // frame 0: tap 0's blink (and the spawner if d = 0)
+        wRun(si, 1, 0, 0, 0, 0, 1, T[0], T[0] * T[0], 0, 0);
+      }
+    } finally { wsp = base; }
+    if (!leaves.length) return;
+    // Different paths can leave overlapping phase sets: give each phase its best leaf, then group phases by leaf.
+    const owner = new Int32Array(WIG).fill(-1);
+    for (let P = 0; P < WIG; P++) {
+      const wi = P >>> 5, bit = 1 << (P & 31);
+      for (let L = 0; L < leaves.length; L++) if ((leaves[L].m[wi] & bit) && (owner[P] < 0 || leaves[L].cost < leaves[owner[P]].cost)) owner[P] = L;
+    }
+    for (let L = 0; L < leaves.length; L++) {
+      const mask = [0, 0, 0, 0, 0, 0, 0, 0];
+      let any = false;
+      for (let P = 0; P < WIG; P++) if (owner[P] === L) { mask[P >>> 5] = (mask[P >>> 5] | (1 << (P & 31))) >>> 0; any = true; }
+      if (any) out.push({ S, d, flag, e: 0, fid0: Infinity, cost: leaves[L].cost, sse: leaves[L].sse, c: leaves[L].c, lastP: leaves[L].lastP, mask });
+    }
+  }
+
+  function searchSlice(obs, opts) {
+    const ms = opts.ms, sigma = opts.sigma, tol = 4.5 * sigma * Math.SQRT2 / ms + 0.5;
+    const pens = { miss: 2 * sigma * sigma * Math.log(1 / 0.05), extra: 2 * sigma * sigma * Math.log(1 / 0.03) };
+    const g1 = (obs[1].t - obs[0].t) / ms;
+    const fidIdx = opts.mode === 'fidgets' ? obs.findIndex((o) => o.kind === 'f') : -1;
+    const eR = fidIdx >= 0 ? Math.ceil(3 * sigma / ms) + 1 : 0;      // the fidget-start press is good to about 3 sigma
+    const fid0Base = fidIdx >= 0 ? Math.round((obs[fidIdx].t - obs[0].t) / ms) - 6 : Infinity;
+    const prefix = fidIdx >= 3 ? obs.slice(0, fidIdx) : null;          // blinks before the first fidget: no fidget yet
+    const quick = opts.budget === 0 && obs.length > 2 && obs[2].kind === 'b';
+    const g2 = quick ? (obs[2].t - obs[1].t) / ms : 0;
+    const out = [];
+    for (let S = opts.S0; S < opts.S1; S++) {
+      const x1 = next(S);
+      const T1 = 20 + Math.trunc(f32((x1 / 8388608) * 80));
+      if (Math.abs(g1 - T1) > tol) continue;           // the first gap is drawn at frame 0, before any wiggle
+      if (opts.wiggle) {
+        for (let flag = 0; flag < 2; flag++) for (let d = 0; d <= (flag ? 13 : 43); d++) searchWiggle(S, d, flag, null, obs, ms, tol, opts.budget, pens, out);
+        continue;
+      }
+      for (let flag = 0; flag < 2; flag++) {
+        for (let d = 0; d <= (flag ? 13 : 43); d++) {
+          if (quick && Math.abs(g2 - (thirdDraw(S, d, flag) - T1)) > tol) continue;
+          if (prefix) {
+            const gp = makeGen(S, d, flag, Infinity); needDraw(gp, 1);
+            if (!alignCandidate(gp, prefix, null, ms, tol, opts.budget, pens)) continue;
+          }
+          for (let e = -eR; e <= eR; e++) {
+            const fid0 = fid0Base + e;
+            if (fid0 <= 0) continue;
+            const g = makeGen(S, d, flag, fid0);
+            needDraw(g, 1);
+            const r = alignCandidate(g, obs, null, ms, tol, opts.budget, pens);
+            if (r) out.push({ S, d, flag, e, fid0, cost: r.cost, sse: r.sse, c: r.c, lastP: r.lastP });
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  // Re-score one known candidate against a longer list of presses (incremental update after a new press).
+  function evalCandidate(obs, cd, opts) {
+    const ms = opts.ms, sigma = opts.sigma, tol = 4.5 * sigma * Math.SQRT2 / ms + 0.5;
+    const pens = { miss: 2 * sigma * sigma * Math.log(1 / 0.05), extra: 2 * sigma * sigma * Math.log(1 / 0.03) };
+    const x1 = next(cd.S), T1 = 20 + Math.trunc(f32((x1 / 8388608) * 80));
+    if (Math.abs((obs[1].t - obs[0].t) / ms - T1) > tol) return opts.wiggle ? [] : null;
+    if (opts.wiggle) {   // may split into several candidates (phase subsets)
+      const out = [];
+      searchWiggle(cd.S, cd.d, cd.flag, cd.mask || null, obs, ms, tol, opts.budget, pens, out);
+      return out;
+    }
+    const g = makeGen(cd.S, cd.d, cd.flag, cd.fid0 === undefined ? Infinity : cd.fid0);
+    needDraw(g, 1);
+    const r = alignCandidate(g, obs, null, ms, tol, opts.budget, pens);
+    return r ? { S: cd.S, d: cd.d, flag: cd.flag, e: cd.e, fid0: cd.fid0, cost: r.cost, sse: r.sse, c: r.c, lastP: r.lastP } : null;
+  }
+
+  // Goodness-of-fit threshold for the adaptive mistake budget.
+  function fitOK(best, n, sigma) { const dof = n - 1; return best <= sigma * sigma * (dof + 4 * Math.sqrt(2 * dof)); }
+
+  /*
+   * Exact future of one candidate for crit-wiggle phase P (-1: none): xs[f] = the RNG state a grass cut on frame f
+   * sees (after Link's blink on f, before the spawner and the end-of-frame wiggle); fidAt[f] = 1 if a fidget roll
+   * happens on f. Frames 0..span.
+   */
+  function trajectory(cd, P, span) {
+    const g = makeGen(cd.S, cd.d, cd.flag, cd.fid0, P);
+    const xs = new Int32Array(span + 1), fidAt = new Uint8Array(span + 2);
+    let f = 0;
+    while (f <= span) {
+      const nf = Math.min(g.linkNext, g.fidNext, g.mureNext);
+      // crit wiggle at the end of frame w (w in [wfrom, nf-1]): frames after w see the new state
+      const w = P >= 0 ? wigFrom(P, g.wfrom) : Infinity, hit = w <= nf - 1;
+      while (f < nf && f <= span) { if (hit && f === w + 1) g.x = next(g.x); xs[f] = g.x; f++; }
+      if (hit && f <= w + 1) g.x = next(g.x);   // the wiggle was in the last frame before nf (or span ended)
+      g.wfrom = nf;
+      if (f > span) break;
+      // frame nf: Link's blink first, record the state, then the rest of the frame
+      if (nf === g.linkNext) { g.x = next(g.x); g.linkNext = nf + 20 + Math.trunc(f32((g.x / 8388608) * 80)); }
+      xs[nf] = g.x;
+      if (nf === g.fidNext) {
+        fidAt[nf] = 1;
+        g.x = next(g.x);
+        const ct = Math.trunc(f32((g.x / 8388608) * 5)), t = ct === 1 ? 'T' : ct === 2 ? 'P' : 'A';
+        g.fidNext = nf + FID_LEN[t] + PLAIN;
+      }
+      if (nf === g.mureNext) g.mureNext = nf + mureEvent(g);
+      f = nf + 1;
+    }
+    return { xs, fidAt };
+  }
+
+  /*
+   * Recommendation. plaus: plausible candidates (sorted, best first). Returns the first stretch of B-press frames
+   * (in the best candidate's numbering) where every plausible candidate gives a magic drop for a cut slashDelay
+   * frames later, with no fidget roll between the press and the cut. Times are in ms on the press clock.
+   */
+  function recommend(plaus, opts) {
+    const ms = opts.ms, delay = opts.slashDelay, best = plaus[0];
+    const magic = opts.magicSlots || MAGIC_SLOTS;
+    const span = best.lastP + opts.horizon + delay + 400;
+    // One trajectory per candidate, or per still-possible crit-wiggle phase when the wiggle is modeled: every
+    // phase left in a candidate's mask is a separate future, and the window must work for all of them.
+    const jobs = [];
+    for (const cd of plaus) {
+      if (!opts.wiggle || !cd.mask) { jobs.push([cd, -1]); continue; }
+      for (let P = 0; P < WIG; P++) if ((cd.mask[P >>> 5] >>> (P & 31)) & 1) jobs.push([cd, P]);
+    }
+    if (jobs.length > (opts.maxTraj || 8000)) return null;   // too many futures to agree yet: keep pressing
+    const traj = jobs.map(([cd, P]) => ({ ...trajectory(cd, P, span), c: cd.c }));
+    const good = (p) => {
+      const t = best.c + p * ms;
+      for (const tr of traj) {
+        const pi = Math.round((t - tr.c) / ms), ci = pi + delay;
+        if (pi < 0 || ci > span) return false;
+        for (let q = pi - 1; q <= ci; q++) if (tr.fidAt[q]) return false;
+        if (!magic.has(rollSlot(tr.xs[ci]))) return false;
+      }
+      return true;
+    };
+    const pMin = best.lastP + Math.ceil(opts.leadMs / ms);
+    let run = 0, start = -1;
+    for (let p = pMin; p <= best.lastP + opts.horizon; p++) {
+      if (good(p)) { if (!run) start = p; run++; }
+      else { if (run >= opts.wmin) break; run = 0; }
+    }
+    if (run < opts.wmin) return null;
+    const center = start + (run - 1) / 2;
+    // real time of frame f = c + f*ms - delta + 6*ms (the blink press convention); B pressed on the beep, no reaction
+    return { pressFrame: center, windowFrames: run, pressTimeMs: best.c + center * ms - opts.delta + 6 * ms };
+  }
+
+  /*
+   * Candidate store for one search shard (one Web Worker, or the page itself when workers are unavailable).
+   * Every surviving candidate is kept in typed arrays, so a few million fit in tens of MB, and each new tap is
+   * re-checked in place. Only small summaries ({n, best} and the plausible list) ever leave the shard, which keeps
+   * the page's own thread free to register taps.
+   * pause: optional async function; when given, long loops yield to it about every 8 ms (main-thread fallback).
+   */
+  function makeShard() {
+    let cap = 0, n = 0, S = null, DF = null, COST = null, CC = null, LP = null, MK = null;   // MK: 8 phase-mask words per candidate
+    const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    function ensure(m) {
+      if (m <= cap) return;
+      const nc = Math.max(m, cap * 2, 4096);
+      const grow = (A, T) => { const b = new T(nc); if (A) b.set(A.subarray(0, n)); return b; };
+      S = grow(S, Int32Array); DF = grow(DF, Uint8Array); COST = grow(COST, Float64Array); CC = grow(CC, Float64Array); LP = grow(LP, Int32Array);
+      const mk = new Uint32Array(nc * 8); if (MK) mk.set(MK.subarray(0, n * 8)); MK = mk;
+      cap = nc;
+    }
+    // d (0..43) in the low 6 bits, the spawner's long/short flag in bit 6
+    function put(i, c) {
+      S[i] = c.S; DF[i] = c.d | (c.flag << 6); COST[i] = c.cost; CC[i] = c.c; LP[i] = c.lastP;
+      for (let w = 0; w < 8; w++) MK[i * 8 + w] = c.mask ? c.mask[w] : 0xFFFFFFFF;   // no wiggle model: all phases
+    }
+    const maskOf = (i) => Array.from(MK.subarray(i * 8, i * 8 + 8));
+    function summary() { let b = Infinity; for (let i = 0; i < n; i++) if (COST[i] < b) b = COST[i]; return { n, best: b }; }
+    return {
+      clear() { n = 0; return summary(); },
+      // Append the candidates from RNG states [opts.S0, opts.S1).
+      async search(obs, opts, pause) {
+        const STEP = pause ? 256 : opts.S1 - opts.S0;
+        let t0 = clock();
+        for (let a = opts.S0; a < opts.S1; a += STEP) {
+          const r = searchSlice(obs, { ...opts, S0: a, S1: Math.min(opts.S1, a + STEP) });
+          ensure(n + r.length);
+          for (const c of r) put(n++, c);
+          if (pause && clock() - t0 > 8) { await pause(); t0 = clock(); }
+        }
+        return summary();
+      },
+      // Re-check every stored candidate against the longer tap list (same mistake budget); drop misfits.
+      async eval(obs, opts, pause) {
+        if (opts.wiggle) return this.evalWiggle(obs, opts, pause);
+        let w = 0, t0 = clock();
+        for (let i = 0; i < n; i++) {
+          const r = evalCandidate(obs, { S: S[i], d: DF[i] & 63, flag: DF[i] >> 6, fid0: Infinity }, opts);
+          if (r) put(w++, r);   // w <= i, and slot i was read above, so compacting in place is safe
+          if (pause && (i & 255) === 255 && clock() - t0 > 8) { await pause(); t0 = clock(); }
+        }
+        n = w;
+        return summary();
+      },
+      // Wiggle model: one stored candidate can split into several (phase subsets), so rebuild the store.
+      async evalWiggle(obs, opts, pause) {
+        const old = { S: S.slice(0, n), DF: DF.slice(0, n), MK: MK.slice(0, n * 8) }, m = n;
+        n = 0;
+        let t0 = clock();
+        for (let i = 0; i < m; i++) {
+          const rs = evalCandidate(obs, { S: old.S[i], d: old.DF[i] & 63, flag: old.DF[i] >> 6, fid0: Infinity, mask: old.MK.subarray(i * 8, i * 8 + 8) }, opts);
+          ensure(n + rs.length);
+          for (const r of rs) put(n++, r);
+          if (pause && (i & 63) === 63 && clock() - t0 > 8) { await pause(); t0 = clock(); }
+        }
+        return summary();
+      },
+      // Candidates with cost <= thr: how many, and the `limit` best as plain objects for recommend().
+      plaus(thr, limit) {
+        const idx = [];
+        for (let i = 0; i < n; i++) if (COST[i] <= thr) idx.push(i);
+        idx.sort((a, b) => COST[a] - COST[b]);
+        return { count: idx.length, list: idx.slice(0, limit).map((i) => ({ S: S[i], d: DF[i] & 63, flag: DF[i] >> 6, fid0: Infinity, cost: COST[i], c: CC[i], lastP: LP[i], mask: maskOf(i) })) };
+      },
+    };
+  }
+
+  const api = { WIG, wigFrom, trajectory, makeShard, searchSlice, evalCandidate, recommend, fitOK, rollSlot, MAGIC_SLOTS, makeGen, needDraw, step, FID_LEN, PLAIN, next };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.GrottoCore = api;
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script>
+(function () {
+  'use strict';
+  const C = self.GrottoCore;
+  const $ = (id) => document.getElementById(id);
+  const MASK = 0x7FFFFF;
+
+  // ---------- settings ----------
+  function settings() {
+    const n = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
+    return { delta: n('f-delay', 250), sigma: n('f-sigma', 50), ms: n('f-frame', 50.05), stab: Math.round(n('f-stab', 6)),
+      wmin: Math.round(n('f-wmin', 5)), beep: n('f-beep', 600),
+      ...targetSlots() };
+  }
+  // Target picker. Drop table 2 (all four grotto grass): 16 equally likely slots.
+  // Slot 14 is the flex drop; what it gives depends on Link's state (see flexReq), so it is a separate toggle.
+  // req: what the regular slots need. flexReq: the state in which the flex drop (slot 14) gives this target,
+  // read off Item_DropCollectibleRandom's chain (health, then magic, then ammo, then rupees; first match wins).
+  // An adult with no bow has 0 arrows, so the chain stops at arrows and the flex drop gives nothing.
+  const TARGETS = {
+    magic: { slots: [2, 15], name: 'small magic jar', req: ['Magic meter'],
+      flexReq: ['more than 5 hearts', 'empty meter (large jar) or half or less (small jar)'] },
+    heart: { slots: [4, 7], name: 'heart', req: ['Not at full health (else a green rupee)'],
+      flexReq: ['2 to 5 hearts (3 hearts if 3 or less)'] },
+    rupee: { slots: [0, 1], name: 'green rupee', req: [],
+      flexReq: ['5 or fewer heart containers, at full health'] },
+    arrows: { slots: [9, 10], name: 'seeds / arrows', req: ['Has slingshot / bow'],
+      flexReq: ['more than 5 hearts', 'magic above half, or none', 'fewer than 6 seeds / arrows (gives 5 seeds / 10 arrows)'] },
+    bombs: { slots: [12], name: '5 bombs', req: ['Bomb bag'],
+      flexReq: ['more than 5 hearts', 'magic above half, or none', '6+ seeds / arrows', 'fewer than 6 bombs'] },
+    nothing: { slots: [3, 5, 6, 8, 11, 13], name: 'nothing', req: [],
+      flexReq: ['more than 5 hearts', 'magic above half, or none', 'no slingshot / bow, or 6+ seeds / arrows', '6+ bombs', '11+ rupees'] },
+    // flex drop only: slot 14 alone
+    // fairy: at 1 heart or less the camera's crit wiggle adds an RNG call every 256 frames, so it is modeled (wiggle)
+    fairy: { slots: [14], flexOnly: true, wiggle: true, name: 'fairy', req: ['1 heart or less', 'Hold R while tapping (no tired animation)'] },
+    redrupee: { slots: [14], flexOnly: true, name: 'red rupee',
+      req: ['More than 5 hearts', 'Magic above half, or none', '6+ seeds / arrows, 6+ bombs', 'Fewer than 11 rupees'] },
+  };
+  const SLOT_NAMES = ['green rupee', 'green rupee', 'small magic jar', 'nothing', 'heart', 'nothing', 'nothing', 'heart', 'nothing', '5 seeds / arrows', '5 seeds / arrows', 'nothing', '5 bombs', 'nothing', 'flex drop', 'small magic jar'];
+  const targetInputs = document.querySelectorAll('input[name="target"]');
+  // The checkboxes show the effective settings; the user's own choices are kept here so that a target that forces
+  // a box (fairy: always 1 heart or less; red rupee: needs more than 5 hearts) doesn't overwrite them.
+  let wantFlex = true, wantCrit = false;
+  // At 1 heart or less (crit wiggle on), the flex drop is a fairy, so it never counts toward another target.
+  function lowHealthFor(key) { const T = TARGETS[key]; return T.wiggle ? true : key === 'redrupee' ? false : wantCrit; }
+  function flexFor(key) { return !TARGETS[key].flexOnly && !lowHealthFor(key) && wantFlex; }
+  function targetSlots() {
+    const key = (document.querySelector('input[name="target"]:checked') || {}).value || 'magic', T = TARGETS[key];
+    const flex = flexFor(key), wiggle = lowHealthFor(key);
+    return { target: key, targetName: flex && key === 'magic' ? 'magic' : T.name, slots: flex ? T.slots.concat([14]) : T.slots, flex, wiggle };
+  }
+  // Rough time from the first tap to the B press, by tier (how many of the 16 slots count, and the crit wiggle).
+  // Rounded from avg_times.js simulations (clean sessions, core.js logic, first search timed as on a 4-core machine).
+  // Without the wiggle: 1 slot ~43-44 s, 2 slots ~33-37 s, 3 slots ~32-33 s, 6-7 slots ~28-29 s.
+  // With the wiggle (7 taps before the search, ~18 s search; 12 sessions): 1 slot ~52-61 s, 2 slots ~45-57 s, 6 slots ~45 s.
+  function tierSeconds(nSlots, wiggle) {
+    if (wiggle) return nSlots <= 1 ? 60 : nSlots === 2 ? 50 : 45;
+    if (nSlots <= 1) return 45;
+    if (nSlots === 2) return 35;
+    return 30;
+  }
+  function updateAvg() {
+    document.querySelectorAll('.avg').forEach((el) => {
+      const k = el.dataset.avg, n = TARGETS[k].slots.length + (flexFor(k) ? 1 : 0);
+      el.textContent = `${n}/16 · ~${tierSeconds(n, lowHealthFor(k))} s`;
+    });
+  }
+  function updateNote() {
+    const t = targetSlots(), T = TARGETS[t.target];
+    // show the effective settings: flex is off (and fixed) for flex-only targets and at 1 heart or less
+    $('flex').disabled = !!T.flexOnly || t.wiggle;
+    $('flex').checked = T.flexOnly ? wantFlex : t.flex;
+    $('crit').disabled = !!T.wiggle || t.target === 'redrupee';
+    $('crit').checked = t.wiggle;
+    updateAvg();
+    const ul = $('target-note');
+    ul.textContent = '';
+    const add = (text) => { const li = document.createElement('li'); li.textContent = text; ul.appendChild(li); };
+    T.req.forEach(add);
+    if (t.wiggle && !T.wiggle) {
+      add('Hold R while tapping (no tired animation)');
+      if (wantFlex && !T.flexOnly) add('Flex drop is a fairy at 1 heart or less (not counted)');
+    }
+    if (t.flex) {   // one "Flex drop" bullet with the conditions nested under it
+      const li = document.createElement('li'), sub = document.createElement('ul');
+      li.textContent = 'Flex drop:';
+      T.flexReq.forEach((r) => { const x = document.createElement('li'); x.textContent = r; sub.appendChild(x); });
+      li.appendChild(sub); ul.appendChild(li);
+    }
+    ul.hidden = !ul.children.length;
+  }
+  try {
+    const m = localStorage.getItem('gbc-target'); if (m && TARGETS[m]) targetInputs.forEach((el) => { el.checked = el.value === m; });
+    const f = localStorage.getItem('gbc-flex'); if (f !== null) wantFlex = f === '1';
+    const c = localStorage.getItem('gbc-crit'); if (c !== null) wantCrit = c === '1';
+  } catch (e) { /* storage unavailable */ }
+  updateNote();
+  let lastWiggle = targetSlots().wiggle;
+  function onTargetChange() {
+    // switching the crit-wiggle model on or off changes what the stored candidates mean: search again from scratch
+    const wig = targetSlots().wiggle;
+    if (wig !== lastWiggle) { lastWiggle = wig; prev = null; undoEpoch++; }
+    try { localStorage.setItem('gbc-target', targetSlots().target); localStorage.setItem('gbc-flex', wantFlex ? '1' : '0'); localStorage.setItem('gbc-crit', wantCrit ? '1' : '0'); } catch (e) { /* ignore */ }
+    updateNote();
+    // otherwise the stored candidates don't depend on the target, so just redo the recommendation
+    if (!locked && presses.length >= minTaps()) schedule();
+  }
+  targetInputs.forEach((el) => el.addEventListener('change', onTargetChange));
+  $('flex').addEventListener('change', () => { wantFlex = $('flex').checked; onTargetChange(); });
+  $('crit').addEventListener('change', () => { wantCrit = $('crit').checked; onTargetChange(); });
+
+  // ---------- search engine ----------
+  // All candidate work runs in Web Workers, each holding one shard of the candidates (GrottoCore.makeShard).
+  // The page only sends taps and receives small summaries, so its thread stays free to register taps at once.
+  // If workers can't start (e.g. a sandbox blocks blob: workers), one shard runs here instead and yields
+  // to the page every ~8 ms.
+  const CORE_TEXT = $('core-text').textContent;
+  const WORKER_TAIL = `
+var shard = GrottoCore.makeShard();
+function runOp(m) {
+  switch (m.op) {
+    case 'clear': return shard.clear();
+    case 'search': return shard.search(m.obs, m.opts, null);
+    case 'eval': return shard.eval(m.obs, m.opts, null);
+    case 'plaus': return shard.plaus(m.thr, m.limit);
+    case 'rec': return GrottoCore.recommend(m.plaus, Object.assign({}, m.opts, { magicSlots: new Set(m.opts.magicSlots) }));
+  }
+}
+self.onmessage = function (ev) {
+  var m = ev.data;
+  Promise.resolve().then(function () { return runOp(m); }).then(
+    function (out) { self.postMessage({ id: m.id, out: out }); },
+    function (e) { self.postMessage({ id: m.id, err: String(e) }); });
+};`;
+  // Yield to the page without setTimeout's 4 ms clamp.
+  const yieldQ = [], yieldCh = new MessageChannel();
+  yieldCh.port1.onmessage = () => { const r = yieldQ.shift(); if (r) r(); };
+  const pause = () => new Promise((r) => { yieldQ.push(r); yieldCh.port2.postMessage(0); });
+
+  function workerShard(w) {
+    let id = 0;
+    const waiting = new Map();
+    w.onmessage = (ev) => { const h = waiting.get(ev.data.id); if (!h) return; waiting.delete(ev.data.id);
+      if (ev.data.err) h.reject(new Error(ev.data.err)); else h.resolve(ev.data.out); };
+    w.onerror = (ev) => { ev.preventDefault && ev.preventDefault(); for (const h of waiting.values()) h.reject(new Error('worker failed')); waiting.clear(); };
+    return { call: (m) => new Promise((resolve, reject) => { const i = ++id; waiting.set(i, { resolve, reject }); w.postMessage({ ...m, id: i }); }) };
+  }
+  function localShard() {
+    const sh = C.makeShard();
+    let chain = Promise.resolve();   // one op at a time, in order, like a worker's message queue
+    const run = (m) => {
+      switch (m.op) {
+        case 'clear': return sh.clear();
+        case 'search': return sh.search(m.obs, m.opts, pause);
+        case 'eval': return sh.eval(m.obs, m.opts, pause);
+        case 'plaus': return sh.plaus(m.thr, m.limit);
+        case 'rec': return C.recommend(m.plaus, { ...m.opts, magicSlots: new Set(m.opts.magicSlots) });
+      }
+    };
+    return { call: (m) => { const p = chain.then(() => run(m)); chain = p.catch(() => {}); return p; } };
+  }
+  function startEngine() {
+    if (!/[?&]noworkers/.test(location.search)) {   // ?noworkers: test hook for the fallback path
+      try {
+        const url = URL.createObjectURL(new Blob([CORE_TEXT + WORKER_TAIL], { type: 'text/javascript' }));
+        const n = Math.max(1, Math.min(8, navigator.hardwareConcurrency || 4));
+        const shards = [];
+        for (let i = 0; i < n; i++) shards.push(workerShard(new Worker(url)));
+        // ping every worker; fall back if any doesn't answer within 3 s
+        const ping = Promise.all(shards.map((sh) => sh.call({ op: 'clear' })));
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 3000));
+        return Promise.race([ping, timeout]).then(() => ({ shards, local: false }), () => ({ shards: [localShard()], local: true }));
+      } catch (e) { /* fall through */ }
+    }
+    return Promise.resolve({ shards: [localShard()], local: true });
+  }
+  let engineP = startEngine();
+  async function all(m) {
+    const E = await engineP;
+    const rs = await Promise.all(E.shards.map((sh) => sh.call(m)));
+    return { n: rs.reduce((a, r) => a + r.n, 0), best: rs.reduce((a, r) => Math.min(a, r.best), Infinity) };
+  }
+  // Full search of all 2^23 RNG states, split into slices handed out to whichever shard is free.
+  async function fullSearch(obs, opts, myGen, onProgress) {
+    const E = await engineP;
+    await Promise.all(E.shards.map((sh) => sh.call({ op: 'clear' })));
+    const N = 1 << 23, k = E.local ? 64 : E.shards.length * 8, last = new Array(E.shards.length);
+    let next = 0, done = 0;
+    await Promise.all(E.shards.map(async (sh, j) => {
+      last[j] = { n: 0, best: Infinity };
+      while (next < k && myGen === gen) {
+        const i = next++;
+        last[j] = await sh.call({ op: 'search', obs, opts: { ...opts, S0: Math.floor(i * N / k), S1: Math.floor((i + 1) * N / k) } });
+        onProgress(++done / k);
+      }
+    }));
+    return { n: last.reduce((a, r) => a + r.n, 0), best: last.reduce((a, r) => Math.min(a, r.best), Infinity) };
+  }
+  async function plausible(thr, limit) {
+    const E = await engineP;
+    const rs = await Promise.all(E.shards.map((sh) => sh.call({ op: 'plaus', thr, limit })));
+    const list = [].concat(...rs.map((r) => r.list)).sort((x, y) => x.cost - y.cost).slice(0, limit);
+    return { count: rs.reduce((a, r) => a + r.count, 0), list };
+  }
+
+  // ---------- session ----------
+  let presses = [], prev = null, dirty = false, locked = null, sim = null, gen = 0, simTimers = [];
+  const fmt = (n) => n.toLocaleString('en-US');
+  function setState(s, text) { $('state').dataset.s = s; $('state-text').textContent = text; }
+  function drawTimeline() {
+    const tl = $('timeline'); tl.textContent = '';
+    if (!presses.length) return;
+    const t0 = presses[0], t1 = Math.max(presses[presses.length - 1], t0 + 1), span = Math.max(t1 - t0, 30000);
+    for (const t of presses) { const i = document.createElement('div'); i.className = 'tick'; i.style.left = (2 + 96 * (t - t0) / span) + '%'; tl.appendChild(i); }
+  }
+  function refresh() {
+    $('n-press').textContent = presses.length;
+    drawTimeline();
+    $('blink').disabled = !!locked;
+    $('mode').disabled = !!locked;   // the target is fixed once the countdown is running
+  }
+  // Taps before the first search. Fewer taps leave millions of candidates (about 13 million after 3 taps,
+  // 2 million after 4, 0.4 million after 5), which costs memory and time for nothing.
+  const MIN_TAPS_BASE = 5, MIN_TAPS_WIGGLE = 7;
+  // With the crit wiggle modeled each state also has ~20 phase hypotheses: at 5 taps that is ~3 million stored
+  // candidates (hundreds of MB), at 7 taps ~60 thousand. The search costs about the same either way.
+  const minTaps = () => (targetSlots().wiggle ? MIN_TAPS_WIGGLE : MIN_TAPS_BASE);
+  function press(t) {
+    if (locked || calibrating) return;
+    if (sim) { resetAll(); }
+    presses.push(t); refresh();
+    const b = $('blink'); b.classList.add('flash'); setTimeout(() => b.classList.remove('flash'), 90);
+    ensureAudio();
+    afterTap();
+  }
+  // Status before the first search, or (re)start the background search. Shared by real and simulated taps.
+  function afterTap() {
+    if (presses.length === 1) $('msg').textContent = DEFAULT_MSG;   // clears a restart notice
+    if (presses.length < minTaps()) {
+      const left = minTaps() - presses.length;
+      setState('idle', `Keep going: search starts in ${left} blink${left > 1 ? 's' : ''}`);
+      return;
+    }
+    schedule();
+  }
+  // A tap only records its time; the search catches up in the background and always uses every tap so far.
+  const DEFAULT_MSG = 'Usually locks after 10–12 blinks (about 30 seconds). One missed blink or extra press is tolerated (not at 1 heart or less).';
+  let solvingGen = -1, undoEpoch = 0;
+  const dbg = [];   // test log of search steps (window.__grottoTest.log); kept short
+  const dbgPush = (x) => { dbg.push(x); if (dbg.length > 100) dbg.shift(); };   // undoEpoch: a solve that saw an undo mid-way can't seed the next re-check
+  function schedule() { if (solvingGen === gen) { dirty = true; return; } solve(); }
+  function resetAll() {
+    gen++; simTimers.forEach(clearTimeout); simTimers = []; presses = []; prev = null; locked = null; sim = null; dirty = false; stopCountdown();
+    $('n-cand').textContent = '8,388,608'; $('n-plaus').textContent = '–';
+    $('msg').textContent = DEFAULT_MSG;
+    setState('idle', "Ready: press on Link's first blink"); refresh();
+  }
+  async function solve() {
+    const myGen = gen;
+    solvingGen = gen; dirty = false;
+    try {
+      await solveOnce(myGen);
+    } catch (e) {
+      if (myGen === gen) { setState('nofit', 'Solver error: reset and try again'); $('msg').textContent = String(e); prev = null; }
+    } finally {
+      if (solvingGen === myGen) solvingGen = -1;
+    }
+    if (myGen === gen && dirty && !locked) solve();
+  }
+  async function solveOnce(myGen) {
+    const stale = () => myGen !== gen, ep = undoEpoch;
+    const s = settings();
+    const obs = presses.map((t) => ({ t, kind: 'b' }));
+    const base = { mode: 'blinks', ms: s.ms, sigma: s.sigma, wiggle: s.wiggle };
+    const fits = (st) => st.n > 0 && C.fitOK(st.best, obs.length, s.sigma);
+    // Most mistakes (missed blinks or extra taps) a recovery search may assume before giving up and restarting.
+    // Measured cost of a full search (4 cores): normal ~5 s clean / ~12 s with 1 mistake / ~15 s with 2;
+    // fairy (crit wiggle) ~15-20 s / ~65 s / ~2.5 min. A fresh attempt takes ~30 s (fairy ~40 s), so the
+    // fairy restarts at once and the other targets try one mistake.
+    const maxBudget = s.wiggle ? 0 : 1;
+    let st = null, budget = 0;
+    if (prev) {
+      // new tap: re-check the stored candidates at the same mistake budget
+      budget = prev.budget;
+      setState('solving', 'Checking…');
+      const tE = performance.now();
+      st = await all({ op: 'eval', obs, opts: { ...base, budget } });
+      dbgPush({ op: 'eval', taps: obs.length, budget, ms: Math.round(performance.now() - tE), n: st.n, fit: fits(st) });
+      if (stale()) return;
+      if (!fits(st)) { if (budget >= maxBudget) { autoRestart(); return; } st = null; }
+    }
+    if (!st) {
+      // full search, allowing more missed or extra taps until something fits
+      for (budget = prev ? prev.budget + 1 : 0; ; budget++) {
+        if (budget > maxBudget) { autoRestart(); return; }
+        const what = budget === 0 ? `Searching all 8.4 million RNG states${s.wiggle ? ' + crit wiggle' : ''}` : `No clean fit: allowing ${budget} missed or extra tap${budget > 1 ? 's' : ''}`;
+        setState('solving', what + '…');
+        const tS = performance.now();
+        st = await fullSearch(obs, { ...base, budget }, myGen, (f) => { if (!stale()) setState('solving', `${what}… ${Math.round(f * 100)}%`); });
+        if (stale()) return;
+        dbgPush({ op: 'search', taps: obs.length, budget, ms: Math.round(performance.now() - tS), n: st.n, fit: fits(st) });
+        if (fits(st)) break;
+      }
+    }
+    // after an undo, these candidates were filtered with a tap that no longer exists: search again from scratch
+    prev = ep === undoEpoch ? { budget } : null;
+    const pl = st.n ? await plausible(st.best + 2 * s.sigma * s.sigma * Math.log(1000), 2000) : { count: 0, list: [] };
+    if (stale()) return;
+    $('n-cand').textContent = fmt(st.n); $('n-plaus').textContent = pl.count ? fmt(pl.count) : '–';
+    if (!pl.count) { autoRestart(); return; }
+    if (pl.count > 2000) {   // far too many to agree on a window yet
+      setState('idle', `${fmt(pl.count)} candidates left: keep pressing`);
+      $('msg').textContent = 'Keep pressing on each blink.';
+      return;
+    }
+    const E = await engineP;
+    const rec = await E.shards[0].call({ op: 'rec', plaus: pl.list,
+      opts: { ms: s.ms, slashDelay: s.stab, horizon: 320, leadMs: 3200, wmin: s.wmin, delta: s.delta, magicSlots: s.slots, wiggle: s.wiggle } });
+    if (stale()) return;
+    // lock only if the first of the 4 beeps is still at least 0.5 s away, so the lock chime and it don't overlap
+    if (rec && rec.pressTimeMs - performance.now() > 3 * s.beep + 500) {
+      lock(rec, s, pl.list);
+    } else {
+      setState('idle', pl.count > 1 ? `${fmt(pl.count)} candidates left: keep pressing` : 'Almost there: keep pressing');
+      $('msg').textContent = rec ? 'Found a window but it is too close: keep pressing for the next one.' : 'No window that every remaining candidate agrees on yet. Keep pressing on each blink.';
+    }
+  }
+
+  // No pattern fits even allowing the mistakes above: start over (faster than searching further).
+  function autoRestart() {
+    resetAll();
+    errorBuzz();
+    setState('nofit', 'Restarting: no pattern fits');
+    $('msg').textContent = "No pattern fits and the mistakes can't be corrected, so the taps were cleared. Start again on Link's next blink. (Usual causes: two mistakes, the first two taps not back-to-back blinks, a fidget, or the camera moving.)";
+  }
+
+  // ---------- countdown ----------
+  let raf = 0, audio = null, beepTimers = [];
+  function ensureAudio() {
+    try { if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) { audio = null; }
+  }
+  function beepAt(whenMs, last) {
+    if (!audio) return;
+    const lat = (audio.outputLatency || audio.baseLatency || 0) * 1000;
+    const delay = Math.max(0, (whenMs - performance.now() - lat) / 1000);
+    const t = audio.currentTime + delay, o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = last ? 1320 : 880; o.type = 'square';
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.1);
+  }
+  // Error sound: a low descending two-note buzz (sawtooth), unlike the chime and the beeps.
+  function errorBuzz() {
+    ensureAudio();
+    if (!audio) return;
+    const t = audio.currentTime + 0.01;
+    [[300, 0], [200, 0.16]].forEach(([f, dt]) => {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = 'sawtooth'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + dt); g.gain.exponentialRampToValueAtTime(0.16, t + dt + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.2);
+      o.connect(g).connect(audio.destination); o.start(t + dt); o.stop(t + dt + 0.22);
+    });
+  }
+  // Lock sound: a soft rising two-note chime (sine), unlike the square-wave countdown beeps.
+  function lockChime() {
+    if (!audio) return;
+    const t = audio.currentTime + 0.01;
+    [[660, 0], [990, 0.12]].forEach(([f, dt]) => {
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + dt); g.gain.exponentialRampToValueAtTime(0.25, t + dt + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.22);
+      o.connect(g).connect(audio.destination); o.start(t + dt); o.stop(t + dt + 0.25);
+    });
+  }
+  function lock(rec, s, plaus) {
+    locked = { target: rec.pressTimeMs, half: (rec.windowFrames - 1) / 2 * s.ms, frames: rec.windowFrames, beep: s.beep };
+    setState('locked', `Locked (${plaus.length === 1 ? '1 candidate' : fmt(plaus.length) + ' candidates agree'})`);
+    $('msg').textContent = '';   // the countdown below says what to do
+    $('count').dataset.on = '1';
+    $('cd-what').textContent = 'Hold R · press B on the last beep';
+    $('cd-window').textContent = `window ±${Math.round(locked.half)} ms`;
+    $('cd-frames').textContent = `${rec.windowFrames} frames drop ${s.targetName}`;
+    ensureAudio();
+    lockChime();
+    beepTimers.forEach(clearTimeout); beepTimers = [];
+    for (let i = 3; i >= 0; i--) beepAt(locked.target - i * locked.beep, i === 0);
+    if (sim) checkSim(rec, s);
+    refresh(); tick();
+  }
+  function tick() {
+    if (!locked) return;
+    const now = performance.now(), left = locked.target - now;
+    $('cd-num').textContent = left > 0 ? (left / 1000).toFixed(1) : '0.0';
+    const beeps = $('beeps').children;
+    for (let i = 0; i < 4; i++) beeps[i].classList.toggle('on', now >= locked.target - (3 - i) * locked.beep - 40);
+    // range bar: 3.2 s around the target
+    const span = 3200, x = (t) => 50 + 100 * (t - locked.target) / span;
+    $('win').style.left = x(locked.target - locked.half - 25) + '%';
+    $('win').style.width = (100 * (2 * locked.half + 50) / span) + '%';
+    $('mid').style.left = '50%';
+    $('now').style.left = Math.max(0, Math.min(100, x(now))) + '%';
+    if (left < -locked.half - 600) {
+      $('cd-what').textContent = 'Done. Reset for the next attempt.';
+      $('total').textContent = `Total: ${((locked.target - presses[0]) / 1000).toFixed(1)} s from the first tap to the B press`;
+      setState('idle', 'Countdown finished');
+      return;
+    }
+    raf = requestAnimationFrame(tick);
+  }
+  function stopCountdown() {
+    cancelAnimationFrame(raf); $('count').dataset.on = '0';
+    $('cd-num').textContent = '0.0'; $('cd-what').textContent = 'Countdown starts when it locks';
+    $('cd-window').textContent = ''; $('cd-frames').textContent = '';
+    for (const b of $('beeps').children) b.classList.remove('on');
+    $('selftest').hidden = true; $('selftest').textContent = ''; $('total').textContent = '';
+  }
+
+  // ---------- simulated session (self-test) ----------
+  // Simulated session: draws a random RNG state, then "presses" on each of Link's blinks with human-like
+  // jitter. The first 10 blinks are entered at once (as if already pressed); later blinks arrive in real
+  // time, exactly as a player would keep pressing, until the tool locks or the user resets.
+  // test hook: mistakes = { miss: [blink indices not tapped], extra: [blink indices followed by an extra tap 0.7 s later] }
+  function simulate(pre, mistakes) {
+    resetAll();
+    const s = settings(), myGen = gen;
+    const S = Math.floor(Math.random() * (1 << 23)), flag = Math.random() < 0.5 ? 1 : 0, d = Math.floor(Math.random() * (flag ? 14 : 44));
+    const P = s.wiggle ? Math.floor(Math.random() * C.WIG) : -1;   // crit-wiggle phase (fairy: 1 heart or less)
+    const g = C.makeGen(S, d, flag, Infinity, P); C.needDraw(g, 60);
+    const D = g.D, now = performance.now(), PRE = Math.max(1, Math.min(20, pre || 2));
+    const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
+    // press clock: press k = base + D[k]*ms + jitter (base already includes the player's delay)
+    const base = now - D[PRE - 1] * s.ms - 5;
+    sim = { S, d, flag, P, base };
+    let t = D.map((f) => base + f * s.ms + gauss() * 0.8 * s.sigma);
+    if (mistakes) {
+      const extra = (mistakes.extra || []).map((i) => t[i] + 700);
+      t = t.filter((_, i) => !(mistakes.miss || []).includes(i)).concat(extra).sort((x, y) => x - y);
+    }
+    presses = t.slice(0, PRE).sort((x, y) => x - y);
+    refresh(); ensureAudio();
+    $('msg').textContent = `Simulated session: ${PRE} blink${PRE > 1 ? 's' : ''} entered, the rest arrive live like real taps.`;
+    afterTap();
+    for (let k = PRE; k < t.length; k++) {
+      simTimers.push(setTimeout(() => {
+        if (myGen !== gen || locked) return;
+        presses.push(Math.max(t[k], presses[presses.length - 1] + 1)); refresh(); afterTap();
+      }, Math.max(0, t[k] - performance.now())));
+    }
+  }
+  function checkSim(rec, s) {
+    // real time of frame f in the simulation = base + f*ms - delta + 6*ms; a perfect press on the last beep:
+    const f0 = sim.base - s.delta + 6 * s.ms;
+    const p = Math.round((rec.pressTimeMs - f0) / s.ms), cut = p + s.stab;
+    // replay the true trajectory (with its crit-wiggle phase, if any) to the state the cut sees
+    const xc = C.trajectory({ S: sim.S, d: sim.d, flag: sim.flag, fid0: Infinity }, sim.P, cut).xs[cut];
+    const slot = C.rollSlot(xc), magic = s.slots.includes(slot);   // magic: hit the chosen target
+    const el = $('selftest'); el.hidden = false; el.dataset.ok = magic ? '1' : '0';
+    el.textContent = `Simulation check: a crouch stab on the last beep cuts on frame ${cut} → ${SLOT_NAMES[slot]} ${magic ? '✓' : '✗'}`;
+  }
+
+  // ---------- reaction calibration ----------
+  // Reaction-time calibration: 8 taps (pointer or Space) on a dot that lights at random moments. The trimmed mean
+  // (dropping the fastest and slowest) goes into the reaction-time box. Taps during calibration never count as blinks.
+  let calibrating = false;
+  async function calibrate() {
+    if (calibrating || locked) return;
+    const dot = $('calib-dot'), out = $('calib-out'), times = [];
+    calibrating = true; $('calib').disabled = true;
+    try {
+      for (let i = 0; i < 8; i++) {
+        out.textContent = `Tap ${i + 1}/8 when the dot lights`;
+        await new Promise((r) => setTimeout(r, 900 + Math.random() * 1500));
+        dot.classList.add('lit'); const t0 = performance.now();
+        const t = await new Promise((resolve) => {
+          const h = (ev) => {
+            if (ev.type === 'keydown' && ev.code !== 'Space') return;
+            ev.preventDefault(); ev.stopImmediatePropagation(); cleanup(); resolve(tapTime(ev));
+          };
+          const cleanup = () => { window.removeEventListener('pointerdown', h, true); window.removeEventListener('keydown', h, true); };
+          window.addEventListener('pointerdown', h, true); window.addEventListener('keydown', h, true);
+        });
+        dot.classList.remove('lit'); times.push(t - t0);
+      }
+      times.sort((x, y) => x - y);
+      const mid = times.slice(1, -1), mean = mid.reduce((x, y) => x + y, 0) / mid.length;
+      $('f-delay').value = Math.round(mean / 5) * 5;
+      saveDelay();
+      out.textContent = `Measured ${Math.round(mean)} ms. Add any TV or capture lag on top.`;
+    } finally {
+      calibrating = false; $('calib').disabled = false; dot.classList.remove('lit');
+    }
+  }
+  function saveDelay() { try { localStorage.setItem('gbc-delay', $('f-delay').value); } catch (e) { /* ignore */ } }
+  try { const v = localStorage.getItem('gbc-delay'); if (v !== null && Number.isFinite(+v)) $('f-delay').value = v; } catch (e) { /* storage unavailable */ }
+  $('f-delay').addEventListener('change', saveDelay);
+
+  // ---------- wiring ----------
+  // The event's own timestamp is when the tap happened, even if the page was busy for a moment.
+  const tapTime = (ev) => { const now = performance.now(), t = ev.timeStamp; return (t > now - 2000 && t <= now) ? t : now; };
+  $('blink').addEventListener('pointerdown', (ev) => { ev.preventDefault(); press(tapTime(ev)); });
+  $('blink').addEventListener('keydown', (ev) => { if (ev.code === 'Enter') ev.preventDefault(); });
+  window.addEventListener('keydown', (ev) => {
+    const typing = ev.target && (ev.target.tagName === 'INPUT' || ev.target.tagName === 'SELECT');
+    if (typing) return;
+    if (ev.code === 'Space') { ev.preventDefault(); if (!ev.repeat) press(tapTime(ev)); }
+    else if (ev.code === 'Backspace') { ev.preventDefault(); undo(); }
+    else if (ev.code === 'Escape') { resetAll(); }
+  });
+  function undo() {
+    if (locked || !presses.length) return;
+    presses.pop(); prev = null; undoEpoch++; refresh();
+    if (presses.length >= minTaps()) schedule(); else setState('idle', 'Keep going');
+  }
+  $('reset').addEventListener('click', resetAll);
+  $('demo').addEventListener('click', () => simulate(2));
+  $('test-beep').addEventListener('click', () => { ensureAudio(); const t = performance.now() + 200; beepAt(t, false); beepAt(t + 600, true); });
+  $('calib').addEventListener('click', calibrate);
+  window.__grottoTest = { log: () => dbg.splice(0), simulate, state: () => ({ presses: presses.length, locked: !!locked, text: $('state-text').textContent, selftest: $('selftest').textContent }) };
+  refresh();
+})();
+</script>
