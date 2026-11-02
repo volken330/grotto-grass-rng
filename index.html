@@ -33,7 +33,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
 .pick .sub { font-size: .78rem; color: var(--ink-2); margin: 2px 0 -4px; }
 .toggle:has(input:disabled) { opacity: .4; }
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; cursor: pointer; justify-self: start; }
-.warnnote { color: var(--warn); font-size: .78rem; margin-left: 4px; }
+.critnote { font-size: .78rem; color: var(--ink-2); margin: -6px 0 0 24px; }
 .toggle input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
 .seg label { position: relative; cursor: pointer; }
 .seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
@@ -65,8 +65,12 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
 @keyframes pulse { 50% { opacity: .3; } }
 @media (prefers-reduced-motion: reduce) { .state[data-s="solving"] .dot { animation: none; } }
 .links { display: flex; gap: 4px; }
-.padtop { display: flex; justify-content: flex-end; margin-bottom: -6px; }
-.reset-btn { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px;
+.padtop { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-bottom: -6px; }
+.zone { display: flex; align-items: center; gap: 10px; margin-right: auto; min-width: 0; }
+.zone[hidden] { display: none; }
+.zone-note { font-size: .78rem; color: var(--ink-2); }
+.zone[data-set="1"] .zone-note { color: var(--magic); }
+.reset-btn { white-space: nowrap; appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 10px;
   padding: 10px 22px; font: 600 1rem var(--font-body); cursor: pointer; touch-action: manipulation; }
 .reset-btn:hover { border-color: var(--ink-2); }
 .reset-btn:disabled { opacity: .5; cursor: default; }
@@ -126,17 +130,24 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
       <label><input type="radio" name="target" value="nothing"><span>Nothing<small class="avg" data-avg="nothing"></small></span></label>
     </div>
     <label class="toggle"><input type="checkbox" id="flex" checked><span>Count the flex drop too</span></label>
-    <label class="toggle"><input type="checkbox" id="crit"><span>1 heart or less <small class="warnnote">crit wiggle: search takes longer</small></span></label>
+    <label class="toggle"><input type="checkbox" id="crit"><span>Has crit wiggle</span></label>
+    <span class="critnote">Crit wiggle makes the search take longer. Avoid it by having more than 1 heart, or by holding Z (inverted cam).</span>
     <span class="sub">Flex drop only</span>
     <div class="seg two">
       <label><input type="radio" name="target" value="fairy"><span>Fairy<small class="avg" data-avg="fairy"></small></span></label>
       <label><input type="radio" name="target" value="redrupee"><span>Red rupee<small class="avg" data-avg="redrupee"></small></span></label>
     </div>
-    <span class="sub">Chance per roll · rough time from the first tap to the B press</span>
+    <span class="sub">Chance per roll · rough time from the first tap to the sword input</span>
   </fieldset>
   <ul class="reqs" id="target-note"></ul>
 
-  <div class="padtop"><button class="reset-btn" id="reset" type="button" title="Reset (Esc)">Reset</button></div>
+  <div class="padtop">
+    <div class="zone" id="zone-box" hidden>
+      <button class="reset-btn" id="zone" type="button">Gained control</button>
+      <span class="zone-note" id="zone-note">Press when you first gain control of Link</span>
+    </div>
+    <button class="reset-btn" id="reset" type="button" title="Reset (Esc)">Reset</button>
+  </div>
   <button id="blink" type="button"><span class="big">BLINK</span><span class="hint">Tap or press Space when Link's eyes close</span></button>
 
   <section class="count" id="count" data-on="0" aria-live="polite">
@@ -477,7 +488,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
    */
   const bF = new Int32Array(64), bX = new Int32Array(64), bMN = new Int32Array(64), bFL = new Uint8Array(64);
   const fG = { x: 0, flag: 0 };
-  function wFast(S, d, flag) {
+  function wFast(S, d, flag, mask0) {   // mask0: starting phase set (null = all 256)
     const T = wT, ms = wms, tol = wtol, g2 = (T[2] - T[1]) / ms;
     fG.x = next(S); fG.flag = flag;
     const T1 = 20 + Math.trunc(f32((fG.x / 8388608) * 80));
@@ -501,7 +512,12 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
       if (mn2 === T1) mn2 = T1 + mureEvent(fG);                // spawner at T1, after the blink
       sX[si] = fG.x; sLN[si] = T1 + T2; sMN[si] = mn2; sFL[si] = fG.flag; sWF[si] = T1;
       const a = i <= m ? bF[i] : 0, b = i < m ? bF[i + 1] - 1 : T1 - 1;
-      for (let w = 0; w < 8; w++) { const ww = windowWord(a, b, w); sM[si * 8 + w] = i <= m ? ww : ~ww >>> 0; }
+      let any = 0;
+      for (let w = 0; w < 8; w++) {
+        const ww = windowWord(a, b, w), mw = (i <= m ? ww : ~ww >>> 0) & (mask0 ? mask0[w] : 0xFFFFFFFF);
+        sM[si * 8 + w] = mw >>> 0; any |= mw;
+      }
+      if (!any) { wsp--; continue; }                           // no allowed phase puts the wiggle in this gap
       const r1 = T[1] - T1 * ms;
       wRun(si, 2, 1, T1, 0, 0, 2, T[0] + r1, T[0] * T[0] + r1 * r1, 0, 0);
       wsp--;
@@ -513,7 +529,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
     const T = wT, leaves = wLeaves;
     const base = wsp;
     try {
-      if (budget === 0 && !mask0 && wn >= 3) wFast(S, d, flag);
+      if (budget === 0 && wn >= 3) wFast(S, d, flag, mask0);
       else {
         const si = wsp++;
         sX[si] = S; sLN[si] = 0; sMN[si] = d; sFL[si] = flag; sWF[si] = 0;
@@ -553,7 +569,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
       const T1 = 20 + Math.trunc(f32((x1 / 8388608) * 80));
       if (Math.abs(g1 - T1) > tol) continue;           // the first gap is drawn at frame 0, before any wiggle
       if (opts.wiggle) {
-        for (let flag = 0; flag < 2; flag++) for (let d = 0; d <= (flag ? 13 : 43); d++) searchWiggle(S, d, flag, null, obs, ms, tol, opts.budget, pens, out);
+        for (let flag = 0; flag < 2; flag++) for (let d = 0; d <= (flag ? 13 : 43); d++) searchWiggle(S, d, flag, opts.mask0 || null, obs, ms, tol, opts.budget, pens, out);
         continue;
       }
       for (let flag = 0; flag < 2; flag++) {
@@ -1029,7 +1045,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
    */
   const bF = new Int32Array(64), bX = new Int32Array(64), bMN = new Int32Array(64), bFL = new Uint8Array(64);
   const fG = { x: 0, flag: 0 };
-  function wFast(S, d, flag) {
+  function wFast(S, d, flag, mask0) {   // mask0: starting phase set (null = all 256)
     const T = wT, ms = wms, tol = wtol, g2 = (T[2] - T[1]) / ms;
     fG.x = next(S); fG.flag = flag;
     const T1 = 20 + Math.trunc(f32((fG.x / 8388608) * 80));
@@ -1053,7 +1069,12 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
       if (mn2 === T1) mn2 = T1 + mureEvent(fG);                // spawner at T1, after the blink
       sX[si] = fG.x; sLN[si] = T1 + T2; sMN[si] = mn2; sFL[si] = fG.flag; sWF[si] = T1;
       const a = i <= m ? bF[i] : 0, b = i < m ? bF[i + 1] - 1 : T1 - 1;
-      for (let w = 0; w < 8; w++) { const ww = windowWord(a, b, w); sM[si * 8 + w] = i <= m ? ww : ~ww >>> 0; }
+      let any = 0;
+      for (let w = 0; w < 8; w++) {
+        const ww = windowWord(a, b, w), mw = (i <= m ? ww : ~ww >>> 0) & (mask0 ? mask0[w] : 0xFFFFFFFF);
+        sM[si * 8 + w] = mw >>> 0; any |= mw;
+      }
+      if (!any) { wsp--; continue; }                           // no allowed phase puts the wiggle in this gap
       const r1 = T[1] - T1 * ms;
       wRun(si, 2, 1, T1, 0, 0, 2, T[0] + r1, T[0] * T[0] + r1 * r1, 0, 0);
       wsp--;
@@ -1065,7 +1086,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
     const T = wT, leaves = wLeaves;
     const base = wsp;
     try {
-      if (budget === 0 && !mask0 && wn >= 3) wFast(S, d, flag);
+      if (budget === 0 && wn >= 3) wFast(S, d, flag, mask0);
       else {
         const si = wsp++;
         sX[si] = S; sLN[si] = 0; sMN[si] = d; sFL[si] = flag; sWF[si] = 0;
@@ -1105,7 +1126,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
       const T1 = 20 + Math.trunc(f32((x1 / 8388608) * 80));
       if (Math.abs(g1 - T1) > tol) continue;           // the first gap is drawn at frame 0, before any wiggle
       if (opts.wiggle) {
-        for (let flag = 0; flag < 2; flag++) for (let d = 0; d <= (flag ? 13 : 43); d++) searchWiggle(S, d, flag, null, obs, ms, tol, opts.budget, pens, out);
+        for (let flag = 0; flag < 2; flag++) for (let d = 0; d <= (flag ? 13 : 43); d++) searchWiggle(S, d, flag, opts.mask0 || null, obs, ms, tol, opts.budget, pens, out);
         continue;
       }
       for (let flag = 0; flag < 2; flag++) {
@@ -1304,14 +1325,17 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
   'use strict';
   const C = self.GrottoCore;
   const $ = (id) => document.getElementById(id);
+  // 'Gained control' mark state (see zoneMask below); declared first because the target UI reads it during setup
+  const ZONE_COUNTER = 21, ZONE_W = 5, ZONE_LOCK_TAPS = 12;
+  let zoneTime = null, zoneOff = false;
   const MASK = 0x7FFFFF;
 
   // ---------- settings ----------
   function settings() {
     const n = (id, d) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : d; };
+    // sword input to grass cut: crouch stab (R + B) 6 frames (Z + B with Z held cuts 7 frames after B; see doc section 13)
     return { delta: n('f-delay', 250), sigma: n('f-sigma', 50), ms: n('f-frame', 50.05), stab: Math.round(n('f-stab', 6)),
-      wmin: Math.round(n('f-wmin', 5)), beep: n('f-beep', 600),
-      ...targetSlots() };
+      wmin: Math.round(n('f-wmin', 5)), beep: n('f-beep', 600), ...targetSlots() };
   }
   // Target picker. Drop table 2 (all four grotto grass): 16 equally likely slots.
   // Slot 14 is the flex drop; what it gives depends on Link's state (see flexReq), so it is a separate toggle.
@@ -1332,8 +1356,8 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
     nothing: { slots: [3, 5, 6, 8, 11, 13], name: 'nothing', req: [],
       flexReq: ['more than 5 hearts', 'magic above half, or none', 'no slingshot / bow, or 6+ seeds / arrows', '6+ bombs', '11+ rupees'] },
     // flex drop only: slot 14 alone
-    // fairy: at 1 heart or less the camera's crit wiggle adds an RNG call every 256 frames, so it is modeled (wiggle)
-    fairy: { slots: [14], flexOnly: true, wiggle: true, name: 'fairy', req: ['1 heart or less', 'Hold R while tapping (no tired animation)'] },
+    // fairy: 1 heart or less, so the crit wiggle applies unless Z is held (inverted cam)
+    fairy: { slots: [14], flexOnly: true, name: 'fairy', req: ['1 heart or less', "Tick 'Has crit wiggle' unless holding Z (inverted cam)"] },
     redrupee: { slots: [14], flexOnly: true, name: 'red rupee',
       req: ['More than 5 hearts', 'Magic above half, or none', '6+ seeds / arrows, 6+ bombs', 'Fewer than 11 rupees'] },
   };
@@ -1342,19 +1366,23 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
   // The checkboxes show the effective settings; the user's own choices are kept here so that a target that forces
   // a box (fairy: always 1 heart or less; red rupee: needs more than 5 hearts) doesn't overwrite them.
   let wantFlex = true, wantCrit = false;
-  // At 1 heart or less (crit wiggle on), the flex drop is a fairy, so it never counts toward another target.
-  function lowHealthFor(key) { const T = TARGETS[key]; return T.wiggle ? true : key === 'redrupee' ? false : wantCrit; }
-  function flexFor(key) { return !TARGETS[key].flexOnly && !lowHealthFor(key) && wantFlex; }
+  // 'Has crit wiggle': 1 heart or less and not holding Z. The wiggle only runs in the normal camera (Camera_Normal1);
+  // holding Z (inverted cam) switches the camera out of it (emulator: no wiggle at 1 heart with Z held, doc section 13).
+  // The red rupee needs more than 5 hearts, so it never has the wiggle.
+  function wiggleFor(key) { return key !== 'redrupee' && wantCrit; }
+  // With the wiggle you're at 1 heart or less, where the flex drop is a fairy: it never counts toward another target.
+  function flexFor(key) { return !TARGETS[key].flexOnly && !wiggleFor(key) && wantFlex; }
   function targetSlots() {
     const key = (document.querySelector('input[name="target"]:checked') || {}).value || 'magic', T = TARGETS[key];
-    const flex = flexFor(key), wiggle = lowHealthFor(key);
+    const flex = flexFor(key), wiggle = wiggleFor(key);
     return { target: key, targetName: flex && key === 'magic' ? 'magic' : T.name, slots: flex ? T.slots.concat([14]) : T.slots, flex, wiggle };
   }
   // Rough time from the first tap to the B press, by tier (how many of the 16 slots count, and the crit wiggle).
   // Rounded from avg_times.js simulations (clean sessions, core.js logic, first search timed as on a 4-core machine).
   // Without the wiggle: 1 slot ~43-44 s, 2 slots ~33-37 s, 3 slots ~32-33 s, 6-7 slots ~28-29 s.
   // With the wiggle (7 taps before the search, ~18 s search; 12 sessions): 1 slot ~52-61 s, 2 slots ~45-57 s, 6 slots ~45 s.
-  function tierSeconds(nSlots, wiggle) {
+  function tierSeconds(nSlots, wiggle, marked) {
+    if (wiggle && marked) return nSlots <= 1 ? 50 : nSlots === 2 ? 45 : 40;   // with a "Gained control" mark (12-tap lock rule; 12 sims: ~52 / ~41-49 / ~39 s)
     if (wiggle) return nSlots <= 1 ? 60 : nSlots === 2 ? 50 : 45;
     if (nSlots <= 1) return 45;
     if (nSlots === 2) return 35;
@@ -1363,25 +1391,24 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
   function updateAvg() {
     document.querySelectorAll('.avg').forEach((el) => {
       const k = el.dataset.avg, n = TARGETS[k].slots.length + (flexFor(k) ? 1 : 0);
-      el.textContent = `${n}/16 · ~${tierSeconds(n, lowHealthFor(k))} s`;
+      el.textContent = `${n}/16 · ~${tierSeconds(n, wiggleFor(k), zoneTime !== null)} s`;
     });
   }
   function updateNote() {
+    zoneUi();
     const t = targetSlots(), T = TARGETS[t.target];
     // show the effective settings: flex is off (and fixed) for flex-only targets and at 1 heart or less
     $('flex').disabled = !!T.flexOnly || t.wiggle;
     $('flex').checked = T.flexOnly ? wantFlex : t.flex;
-    $('crit').disabled = !!T.wiggle || t.target === 'redrupee';
+    $('crit').disabled = t.target === 'redrupee';
     $('crit').checked = t.wiggle;
     updateAvg();
     const ul = $('target-note');
     ul.textContent = '';
     const add = (text) => { const li = document.createElement('li'); li.textContent = text; ul.appendChild(li); };
     T.req.forEach(add);
-    if (t.wiggle && !T.wiggle) {
-      add('Hold R while tapping (no tired animation)');
-      if (wantFlex && !T.flexOnly) add('Flex drop is a fairy at 1 heart or less (not counted)');
-    }
+    if (t.wiggle) add('Hold R while tapping (no tired animation)');
+    if (t.wiggle && !T.flexOnly && wantFlex) add('Flex drop is a fairy at 1 heart or less (not counted)');
     if (t.flex) {   // one "Flex drop" bullet with the conditions nested under it
       const li = document.createElement('li'), sub = document.createElement('ul');
       li.textContent = 'Flex drop:';
@@ -1522,10 +1549,36 @@ self.onmessage = function (ev) {
   }
   // Taps before the first search. Fewer taps leave millions of candidates (about 13 million after 3 taps,
   // 2 million after 4, 0.4 million after 5), which costs memory and time for nothing.
+  /*
+   * 'Gained control' mark (crit wiggle only). GameState.frames resets to 0 when the scene loads and the wiggle fires
+   * when it is a multiple of 256. Emulator (NTSC 1.2, grotto entrance 0x003F, stick held through the load): control
+   * starts on counter 19, Link turns on 20 and moves on 22, the fade ends on 21. The press is read like a blink tap
+   * (its first visible frame is 6 frames before the blink's RNG draw in the countdown's convention), centred on
+   * counter 21, and the search starts from the phases within ZONE_W frames of the predicted one.
+   */
+  const zoneActive = () => zoneTime !== null && !zoneOff;
+  function zoneMask(ms) {
+    // frame of the first visible change after control, in the solver's numbering (frame 0 = first blink tap's draw)
+    const M = Math.round((zoneTime - presses[0]) / ms) - 6;
+    const P = M - ZONE_COUNTER;                            // wiggle frames: counter(f) = ZONE_COUNTER + f - M = 0 mod 256
+    const m = [0, 0, 0, 0, 0, 0, 0, 0];
+    for (let k = -ZONE_W; k <= ZONE_W; k++) { const q = (((P + k) % C.WIG) + C.WIG) % C.WIG; m[q >>> 5] = (m[q >>> 5] | (1 << (q & 31))) >>> 0; }
+    return m;
+  }
+  function zoneUi() {
+    const wig = targetSlots().wiggle;
+    $('zone-box').hidden = !wig;
+    $('zone-box').dataset.set = zoneTime !== null ? '1' : '0';
+    if (zoneTime !== null) $('zone-note').textContent = `Marked ${Math.round((performance.now() - zoneTime) / 1000)} s ago (press again on a new entry)`;
+    else $('zone-note').textContent = 'Press when you first gain control of Link';
+  }
+  setInterval(() => { if (zoneTime !== null && !$('zone-box').hidden) zoneUi(); }, 1000);
+  zoneUi();
+
   const MIN_TAPS_BASE = 5, MIN_TAPS_WIGGLE = 7;
   // With the crit wiggle modeled each state also has ~20 phase hypotheses: at 5 taps that is ~3 million stored
   // candidates (hundreds of MB), at 7 taps ~60 thousand. The search costs about the same either way.
-  const minTaps = () => (targetSlots().wiggle ? MIN_TAPS_WIGGLE : MIN_TAPS_BASE);
+  const minTaps = () => (targetSlots().wiggle && !zoneActive() ? MIN_TAPS_WIGGLE : MIN_TAPS_BASE);
   function press(t) {
     if (locked || calibrating) return;
     if (sim) { resetAll(); }
@@ -1551,6 +1604,7 @@ self.onmessage = function (ev) {
   const dbgPush = (x) => { dbg.push(x); if (dbg.length > 100) dbg.shift(); };   // undoEpoch: a solve that saw an undo mid-way can't seed the next re-check
   function schedule() { if (solvingGen === gen) { dirty = true; return; } solve(); }
   function resetAll() {
+    zoneOff = false;
     gen++; simTimers.forEach(clearTimeout); simTimers = []; presses = []; prev = null; locked = null; sim = null; dirty = false; stopCountdown();
     $('n-cand').textContent = '8,388,608'; $('n-plaus').textContent = '–';
     $('msg').textContent = DEFAULT_MSG;
@@ -1579,6 +1633,8 @@ self.onmessage = function (ev) {
     // fairy (crit wiggle) ~15-20 s / ~65 s / ~2.5 min. A fresh attempt takes ~30 s (fairy ~40 s), so the
     // fairy restarts at once and the other targets try one mistake.
     const maxBudget = s.wiggle ? 0 : 1;
+    // 'Gained control' mark: start the wiggle search from the ~11 phases around the predicted one
+    const mask0 = s.wiggle && zoneActive() ? zoneMask(s.ms) : null;
     let st = null, budget = 0;
     if (prev) {
       // new tap: re-check the stored candidates at the same mistake budget
@@ -1588,23 +1644,37 @@ self.onmessage = function (ev) {
       st = await all({ op: 'eval', obs, opts: { ...base, budget } });
       dbgPush({ op: 'eval', taps: obs.length, budget, ms: Math.round(performance.now() - tE), n: st.n, fit: fits(st) });
       if (stale()) return;
+      if (!fits(st) && prev.masked) {
+        // candidates from a 'Gained control' mark stopped fitting: the mark was probably off, so drop it for this
+        // attempt and search every wiggle timing (from the 7th tap) before giving up on the taps
+        zoneOff = true; prev = null;
+        if (obs.length < MIN_TAPS_WIGGLE) { setState('idle', 'Gained-control mark did not fit: keep tapping'); $('msg').textContent = 'Searching every crit-wiggle timing from the 7th blink.'; return; }
+        return solveOnce(myGen);
+      }
       if (!fits(st)) { if (budget >= maxBudget) { autoRestart(); return; } st = null; }
     }
     if (!st) {
       // full search, allowing more missed or extra taps until something fits
       for (budget = prev ? prev.budget + 1 : 0; ; budget++) {
         if (budget > maxBudget) { autoRestart(); return; }
-        const what = budget === 0 ? `Searching all 8.4 million RNG states${s.wiggle ? ' + crit wiggle' : ''}` : `No clean fit: allowing ${budget} missed or extra tap${budget > 1 ? 's' : ''}`;
+        const what = budget === 0 ? `Searching all 8.4 million RNG states${s.wiggle ? (mask0 ? ' + crit wiggle (marked)' : ' + crit wiggle') : ''}` : `No clean fit: allowing ${budget} missed or extra tap${budget > 1 ? 's' : ''}`;
         setState('solving', what + '…');
         const tS = performance.now();
-        st = await fullSearch(obs, { ...base, budget }, myGen, (f) => { if (!stale()) setState('solving', `${what}… ${Math.round(f * 100)}%`); });
+        st = await fullSearch(obs, { ...base, budget, mask0 }, myGen, (f) => { if (!stale()) setState('solving', `${what}… ${Math.round(f * 100)}%`); });
         if (stale()) return;
+        if (mask0 && !fits(st)) {
+          // the mark didn't fit (or the taps didn't): drop the mark for this attempt and search every wiggle timing,
+          // which needs 7 taps to keep the candidate count manageable
+          zoneOff = true; prev = null;
+          if (obs.length < MIN_TAPS_WIGGLE) { setState('idle', 'Gained-control mark did not fit: keep tapping'); $('msg').textContent = 'Searching every crit-wiggle timing from the 7th blink.'; return; }
+          return solveOnce(myGen);
+        }
         dbgPush({ op: 'search', taps: obs.length, budget, ms: Math.round(performance.now() - tS), n: st.n, fit: fits(st) });
         if (fits(st)) break;
       }
     }
     // after an undo, these candidates were filtered with a tap that no longer exists: search again from scratch
-    prev = ep === undoEpoch ? { budget } : null;
+    prev = ep === undoEpoch ? { budget, masked: !!mask0 } : null;
     const pl = st.n ? await plausible(st.best + 2 * s.sigma * s.sigma * Math.log(1000), 2000) : { count: 0, list: [] };
     if (stale()) return;
     $('n-cand').textContent = fmt(st.n); $('n-plaus').textContent = pl.count ? fmt(pl.count) : '–';
@@ -1619,7 +1689,10 @@ self.onmessage = function (ev) {
       opts: { ms: s.ms, slashDelay: s.stab, horizon: 320, leadMs: 3200, wmin: s.wmin, delta: s.delta, magicSlots: s.slots, wiggle: s.wiggle } });
     if (stale()) return;
     // lock only if the first of the 4 beeps is still at least 0.5 s away, so the lock chime and it don't overlap
-    if (rec && rec.pressTimeMs - performance.now() > 3 * s.beep + 500) {
+    // With candidates from a 'Gained control' mark the true answer can be missing (wrong mark), and wrong candidates
+    // can fit a few taps by chance; each extra tap makes that ~6x less likely, so such locks need ZONE_LOCK_TAPS taps.
+    const markedTooEarly = prev && prev.masked && obs.length < ZONE_LOCK_TAPS;
+    if (rec && !markedTooEarly && rec.pressTimeMs - performance.now() > 3 * s.beep + 500) {
       lock(rec, s, pl.list);
     } else {
       setState('idle', pl.count > 1 ? `${fmt(pl.count)} candidates left: keep pressing` : 'Almost there: keep pressing');
@@ -1701,7 +1774,7 @@ self.onmessage = function (ev) {
     $('now').style.left = Math.max(0, Math.min(100, x(now))) + '%';
     if (left < -locked.half - 600) {
       $('cd-what').textContent = 'Done. Reset for the next attempt.';
-      $('total').textContent = `Total: ${((locked.target - presses[0]) / 1000).toFixed(1)} s from the first tap to the B press`;
+      $('total').textContent = `Total: ${((locked.target - presses[0]) / 1000).toFixed(1)} s from the first tap to the sword input`;
       setState('idle', 'Countdown finished');
       return;
     }
@@ -1732,6 +1805,10 @@ self.onmessage = function (ev) {
     const base = now - D[PRE - 1] * s.ms - 5;
     sim = { S, d, flag, P, base };
     let t = D.map((f) => base + f * s.ms + gauss() * 0.8 * s.sigma);
+    if (mistakes && mistakes.zone !== undefined && P >= 0) {   // test hook: a 'Gained control' press, off by mistakes.zone frames
+      // want M - ZONE_COUNTER = P - 3*256 (about 37 s before the first tap), with M = (zoneTime - firstTap)/ms - 6
+      zoneTime = base + (P - 3 * C.WIG + ZONE_COUNTER + 6 + mistakes.zone) * s.ms; zoneOff = false; zoneUi(); updateAvg();
+    }
     if (mistakes) {
       const extra = (mistakes.extra || []).map((i) => t[i] + 700);
       t = t.filter((_, i) => !(mistakes.miss || []).includes(i)).concat(extra).sort((x, y) => x - y);
@@ -1812,6 +1889,11 @@ self.onmessage = function (ev) {
     if (presses.length >= minTaps()) schedule(); else setState('idle', 'Keep going');
   }
   $('reset').addEventListener('click', resetAll);
+  $('zone').addEventListener('pointerdown', (ev) => {
+    ev.preventDefault(); zoneTime = tapTime(ev); zoneOff = false;
+    if (!locked) { prev = null; undoEpoch++; }               // stored candidates came from a different phase set
+    zoneUi(); updateAvg();
+  });
   $('demo').addEventListener('click', () => simulate(2));
   $('test-beep').addEventListener('click', () => { ensureAudio(); const t = performance.now() + 200; beepAt(t, false); beepAt(t + 600, true); });
   $('calib').addEventListener('click', calibrate);
