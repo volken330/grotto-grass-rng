@@ -177,7 +177,7 @@ h1 { font-size: 1.35rem; font-weight: 600; letter-spacing: -.01em; margin: 0; te
       <li>Hold the stick toward the camera for about 0.85 s so Link turns and walks back toward it, then let go. Don't touch the camera again.</li>
       <li>Wait about 5 s for Navi to go into Link's hat.</li>
       <li>Press BLINK on every blink. The first two must be back-to-back blinks.</li>
-      <li>When it locks: hold R, press B on the last beep.</li>
+      <li>When it locks: input sword on the last beep.</li>
     </ol>
     <p>Blinks only, no fidgets: each idle fidget uses the RNG and this model doesn't include them.</p>
   </section>
@@ -1677,7 +1677,7 @@ self.onmessage = function (ev) {
     setState('locked', `Locked (${plaus.length === 1 ? '1 candidate' : fmt(plaus.length) + ' candidates agree'})`);
     $('msg').textContent = '';   // the countdown below says what to do
     $('count').dataset.on = '1';
-    $('cd-what').textContent = 'Hold R · press B on the last beep';
+    $('cd-what').textContent = 'Input sword on the last beep';
     $('cd-window').textContent = `window ±${Math.round(locked.half)} ms`;
     $('cd-frames').textContent = `${rec.windowFrames} frames drop ${s.targetName}`;
     ensureAudio();
